@@ -35,6 +35,7 @@ import { SessionError } from "../components/session-error"
 import { timelineCategory, type TimelineDetail } from "./detail"
 import { currentToolFailed } from "../message/current-tool-state"
 import { userMessageRuns, userRunSpring } from "./user-runs"
+import { attached } from "../components/message-file"
 import {
   createReactiveTimelineProjection,
   Timeline,
@@ -116,13 +117,27 @@ export function createSessionTimelineRowRenderer(input: {
     return owners
   })
 
-  const runs = createMemo(() =>
-    userMessageRuns(input.projection.rows(), (id) => {
-      const status = input.actions?.pending?.status(id)
+  const runs = createMemo(() => {
+    const messages = input.projection.messageByID()
+    const context = input.projection.userContextByID()
 
-      return status === "steering" || status === "stranded" ? "pending" : "sent"
-    }),
-  )
+    return userMessageRuns(input.projection.rows(), [...messages.values()], (id) => {
+      const message = messages.get(id)
+      const user = context.get(id)
+
+      if (message?.type !== "user" || !user) return undefined
+      const status = input.actions?.pending?.status(id)
+      const presentation = input.presentation(message)
+
+      return {
+        kind: status === "steering" || status === "stranded" ? "pending" : "sent",
+        agent: user.agent,
+        model: user.model,
+        text: !!(presentation?.displayText ?? message.text),
+        attachments: (message.files ?? []).some(attached) || !!presentation?.references?.length,
+      }
+    })
+  })
 
   const run = (messageID: string) =>
     createMemo(() => runs().get(messageID), undefined, {
