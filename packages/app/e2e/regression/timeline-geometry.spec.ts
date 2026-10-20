@@ -715,3 +715,42 @@ test("scrolls the timeline behind the composer region, fading at the card, and k
   await expect.poll(async () => (await dock.boundingBox())!.height).toBeGreaterThan(before + 40)
   await expect.poll(geometry).toEqual(expected)
 })
+
+test("groups consecutive sent prompts under the last one's meta line, with each bubble's actions beside it", async ({
+  page,
+}) => {
+  const prompt = (id: string, text: string, created: number) =>
+    userMessage([userText(text, { id: `prt_${id}_text` })], { id, created })
+
+  await setupTimeline(page, {
+    messages: [
+      prompt("msg_0001_run", "Group these prompts.", 1700000000000),
+      prompt("msg_0002_run", "Like the iOS app does.", 1700000001000),
+    ],
+  })
+
+  const row = (id: string) =>
+    page.locator(`[data-timeline-virtual-content] [data-timeline-row="UserMessage"][data-message-id="${id}"]`)
+
+  const first = row("msg_0001_run")
+  const last = row("msg_0002_run")
+  const bubble = (row: Locator) => row.locator('[data-slot="user-message-text"]')
+  await expect(bubble(last)).toHaveText("Like the iOS app does.")
+
+  // Bubbles of a run sit 4px apart, as in the iOS app, and only the last carries the meta line.
+  await expect
+    .poll(async () => {
+      const above = (await bubble(first).boundingBox())!
+      const below = (await bubble(last).boundingBox())!
+
+      return Math.round(below.y - above.y - above.height)
+    })
+    .toBe(4)
+  await expect(first.locator('[data-slot="user-message-meta-tail"]')).toBeHidden()
+  await expect(last.locator('[data-slot="user-message-meta-tail"]')).toBeVisible()
+
+  // The first message keeps its own actions, shown beside its bubble on hover.
+  await bubble(first).hover()
+  await expect(first.locator('[data-slot="user-message-run-actions"]')).toHaveCSS("opacity", "1")
+  await expect(first.getByRole("button", { name: "Copy message" })).toHaveCount(1)
+})

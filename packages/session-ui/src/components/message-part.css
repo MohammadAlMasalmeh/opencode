@@ -194,6 +194,9 @@
     border: none;
     padding: 8px 12px;
     border-radius: 10px;
+    /* Where two bubbles of a run meet, their trailing corners tighten to 4px. */
+    border-start-end-radius: calc(10px - 6px * var(--user-run-top, 0));
+    border-end-end-radius: calc(10px - 6px * var(--user-run-bottom, 0));
     transition:
       background-color 150ms ease-out,
       color 150ms ease-out;
@@ -230,8 +233,8 @@
   }
 
   [data-slot="user-message-copy-wrapper"] {
-    min-height: 24px;
-    margin-top: 4px;
+    height: calc(24px * var(--user-run-meta, 1));
+    margin-top: calc(4px * var(--user-run-meta, 1));
     display: flex;
     align-items: center;
     justify-content: flex-end;
@@ -290,6 +293,50 @@
     opacity: 1;
     pointer-events: auto;
     transition: none;
+  }
+
+  [data-slot="user-message-copy-wrapper"] > * {
+    opacity: var(--user-run-meta, 1);
+  }
+
+  /* The last message of a run carries the meta line; the others fold theirs away and offer their actions beside
+     the bubble. */
+  &[data-run-folded] {
+    [data-slot="user-message-body"] {
+      position: relative;
+    }
+
+    [data-slot="user-message-copy-wrapper"] {
+      overflow: clip;
+      pointer-events: none;
+    }
+  }
+
+  &[data-run-meta-hidden] [data-slot="user-message-copy-wrapper"] {
+    visibility: hidden;
+  }
+
+  [data-slot="user-message-run-actions"] {
+    position: absolute;
+    /* Centered on the bubble's last line. */
+    bottom: calc(8px + (1lh - 24px) / 2);
+    inset-inline-end: calc(100% + 4px);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: opacity 0.15s ease;
+
+    @media (hover: hover) {
+      opacity: 0;
+      pointer-events: none;
+    }
+  }
+
+  &:hover [data-slot="user-message-run-actions"],
+  &:focus-within [data-slot="user-message-run-actions"],
+  [data-slot="user-message-run-actions"]:has([data-expanded]) {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .text-text-strong {

@@ -11,6 +11,7 @@ import {
 } from "../tools/tool-renderer"
 import { currentToolError, currentToolInput, currentToolMetadata, currentToolOutput } from "./current-tool-state"
 import { currentStreamingInput } from "./streaming-input"
+import type { UserRun } from "../timeline/user-runs"
 // Registers the genui_render renderer with the tool registry.
 import "../genui/tool"
 
@@ -30,6 +31,7 @@ export function SessionUserMessage(props: {
   historicalAgent: string
   historicalModel: SessionMessageAssistant["model"]
   actions?: SessionUserActions
+  run?: UserRun
 }) {
   return (
     <CurrentUserMessageDisplay
@@ -42,6 +44,7 @@ export function SessionUserMessage(props: {
       agent={props.historicalAgent}
       model={props.historicalModel}
       actions={props.actions}
+      run={props.run}
     />
   )
 }

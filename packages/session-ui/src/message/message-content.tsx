@@ -6,6 +6,7 @@ import {
   Index,
   onCleanup,
   Show,
+  untrack,
   type ComponentProps,
   type JSX,
 } from "solid-js"
@@ -33,6 +34,8 @@ import { TextShimmer } from "@opencode/ui/text-shimmer"
 import { BasicTool } from "../components/basic-tool"
 import { reasoningHeading } from "../timeline/projection"
 import { Card } from "@opencode/ui/card"
+import { springStyle } from "@opencode/ui/motion/solid"
+import { userRunSpring, type UserRun } from "../timeline/user-runs"
 import type {
   PromptAgentAttachment,
   PromptFileAttachment,
@@ -267,6 +270,7 @@ export function CurrentUserMessageDisplay(props: {
   comments?: SessionUserComment[]
   references?: SessionUserAttachmentReference[]
   voice?: boolean
+  run?: UserRun
 }) {
   const data = useData()
   const dialog = useDialog()
@@ -299,6 +303,31 @@ export function CurrentUserMessageDisplay(props: {
 
   const stamp = createMemo(() => timefmt().format(props.message.time.created))
 
+  // In a run, only the last message keeps the meta line; the others offer their actions beside the bubble.
+  // Bubble corners tighten where two bubbles meet, as in the iOS app's grouped corners.
+  const folded = createMemo(() => !!props.run?.below && !!props.text)
+
+  const meetsAbove = createMemo(
+    () => !!props.run?.above && !!props.text && attachments().length === 0 && references().length === 0,
+  )
+
+  const runPose = () => ({ meta: folded() ? 0 : 1, top: meetsAbove() ? 1 : 0, bottom: folded() ? 1 : 0 })
+  // The first paint is the resting pose; the spring's first write lands a frame later.
+  const restingPose = untrack(runPose)
+
+  let root: HTMLDivElement | undefined
+  springStyle(
+    () => root,
+    runPose,
+    (el, value) => {
+      el.style.setProperty("--user-run-meta", `${value.meta}`)
+      el.style.setProperty("--user-run-top", `${value.top}`)
+      el.style.setProperty("--user-run-bottom", `${value.bottom}`)
+      el.toggleAttribute("data-run-meta-hidden", value.meta === 0)
+    },
+    userRunSpring,
+  )
+
   const copy = async (text: string) => {
     if (!text || !(await writeClipboard(text))) return
     setState("copied", true)
@@ -324,6 +353,96 @@ export function CurrentUserMessageDisplay(props: {
     await actions[action]({ sessionID: props.sessionID, messageID: props.message.id })
     setState("updating", false)
   }
+
+  const renderActions = () => (
+    <>
+      <Show when={pending()}>
+        <MessageActionButton
+          icon="arrow-down-to-line"
+          label={i18n.t("ui.message.moveToQueue")}
+          disabled={state.updating}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={(event) => {
+            event.stopPropagation()
+            void updatePending("queue")
+          }}
+          aria-label={i18n.t("ui.message.moveToQueue")}
+        />
+        <MessageActionButton
+          icon="outline-trash"
+          label={i18n.t("ui.message.deletePending")}
+          disabled={state.updating}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={(event) => {
+            event.stopPropagation()
+            void updatePending("remove")
+          }}
+          aria-label={i18n.t("ui.message.deletePending")}
+        />
+      </Show>
+      <Show when={props.actions?.revert && !pending()}>
+        <MessageActionButton
+          icon="reset"
+          label={i18n.t("ui.message.revertMessage")}
+          disabled={state.reverting}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={(event) => {
+            event.stopPropagation()
+            void revert()
+          }}
+          aria-label={i18n.t("ui.message.revertMessage")}
+        />
+      </Show>
+      {/* Like the iOS app, a Voice message's copy also offers the full prompt the session received, on right click. */}
+      <Show
+        when={props.voice}
+        fallback={
+          <Show when={props.text}>
+            <MessageActionButton
+              icon={state.copied ? "check" : "copy"}
+              label={state.copied ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyMessage")}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) => {
+                event.stopPropagation()
+                void copy(props.text)
+              }}
+              aria-label={state.copied ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyMessage")}
+            />
+          </Show>
+        }
+      >
+        <Menu.Context modal={false}>
+          <Tooltip
+            appearance="compact"
+            value={state.copied ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyMessage")}
+            placement="top"
+            gutter={4}
+          >
+            <Menu.Context.Trigger
+              as={IconButton}
+              icon={<Icon name={state.copied ? "check" : "outline-copy"} size="small" />}
+              size="normal"
+              variant="ghost-muted"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) => {
+                event.stopPropagation()
+                void copy(props.text)
+              }}
+              aria-label={state.copied ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyMessage")}
+            />
+          </Tooltip>
+          <Menu.Context.Portal>
+            <Menu.Context.Content>
+              <Menu.Item onSelect={() => void copy(props.text)}>{i18n.t("ui.message.copyMessage")}</Menu.Item>
+              <Menu.Item onSelect={() => void copy(props.message.text)}>
+                {i18n.t("ui.message.copyFullMessage")}
+              </Menu.Item>
+            </Menu.Context.Content>
+          </Menu.Context.Portal>
+        </Menu.Context>
+      </Show>
+    </>
+  )
 
   const renderAttachments = () => (
     <Show when={attachments().length > 0 || references().length > 0}>
@@ -381,8 +500,16 @@ export function CurrentUserMessageDisplay(props: {
 
   return (
     <div
+      ref={root}
       data-component="user-message"
       data-pending={waiting() ? "true" : undefined}
+      data-run-folded={folded() ? "" : undefined}
+      data-run-meta-hidden={restingPose.meta === 0 ? "" : undefined}
+      style={{
+        "--user-run-meta": `${restingPose.meta}`,
+        "--user-run-top": `${restingPose.top}`,
+        "--user-run-bottom": `${restingPose.bottom}`,
+      }}
       data-timeline-part-id={props.text ? `${props.message.id}:text:0` : undefined}
     >
       <Show when={waiting()}>
@@ -415,6 +542,9 @@ export function CurrentUserMessageDisplay(props: {
               <UserMessageComments comments={comments()} bounded />
             </Show>
           </div>
+          <Show when={folded()}>
+            <div data-slot="user-message-run-actions">{renderActions()}</div>
+          </Show>
         </div>
       </Show>
       {/* Like the TUI, a pending steer of only attachments still offers its actions. */}
@@ -435,91 +565,7 @@ export function CurrentUserMessageDisplay(props: {
               {stamp()}
             </span>
           </span>
-          <Show when={pending()}>
-            <MessageActionButton
-              icon="arrow-down-to-line"
-              label={i18n.t("ui.message.moveToQueue")}
-              disabled={state.updating}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={(event) => {
-                event.stopPropagation()
-                void updatePending("queue")
-              }}
-              aria-label={i18n.t("ui.message.moveToQueue")}
-            />
-            <MessageActionButton
-              icon="outline-trash"
-              label={i18n.t("ui.message.deletePending")}
-              disabled={state.updating}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={(event) => {
-                event.stopPropagation()
-                void updatePending("remove")
-              }}
-              aria-label={i18n.t("ui.message.deletePending")}
-            />
-          </Show>
-          <Show when={props.actions?.revert && !pending()}>
-            <MessageActionButton
-              icon="reset"
-              label={i18n.t("ui.message.revertMessage")}
-              disabled={state.reverting}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={(event) => {
-                event.stopPropagation()
-                void revert()
-              }}
-              aria-label={i18n.t("ui.message.revertMessage")}
-            />
-          </Show>
-          {/* Like the iOS app, a Voice message's copy also offers the full prompt the session received, on right click. */}
-          <Show
-            when={props.voice}
-            fallback={
-              <Show when={props.text}>
-                <MessageActionButton
-                  icon={state.copied ? "check" : "copy"}
-                  label={state.copied ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyMessage")}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    void copy(props.text)
-                  }}
-                  aria-label={state.copied ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyMessage")}
-                />
-              </Show>
-            }
-          >
-            <Menu.Context modal={false}>
-              <Tooltip
-                appearance="compact"
-                value={state.copied ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyMessage")}
-                placement="top"
-                gutter={4}
-              >
-                <Menu.Context.Trigger
-                  as={IconButton}
-                  icon={<Icon name={state.copied ? "check" : "outline-copy"} size="small" />}
-                  size="normal"
-                  variant="ghost-muted"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    void copy(props.text)
-                  }}
-                  aria-label={state.copied ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyMessage")}
-                />
-              </Tooltip>
-              <Menu.Context.Portal>
-                <Menu.Context.Content>
-                  <Menu.Item onSelect={() => void copy(props.text)}>{i18n.t("ui.message.copyMessage")}</Menu.Item>
-                  <Menu.Item onSelect={() => void copy(props.message.text)}>
-                    {i18n.t("ui.message.copyFullMessage")}
-                  </Menu.Item>
-                </Menu.Context.Content>
-              </Menu.Context.Portal>
-            </Menu.Context>
-          </Show>
+          {renderActions()}
         </div>
       </Show>
     </div>
