@@ -174,16 +174,21 @@
     background: var(--v2-background-bg-layer-02);
   }
 
-  &[data-pending] {
+  /* A run of waiting steers wears one badge, on its first bubble. It fades as the steer joins a run or delivers,
+     and its room springs with it. */
+  &:has([data-slot="user-message-pending"]) {
     position: relative;
-    margin-block-start: calc(8px * (1 - var(--user-run-top, 0)));
+    margin-block-start: calc(8px * var(--user-run-badge, 0));
 
-    /* A run of waiting steers wears one badge, on its first bubble. */
     [data-slot="user-message-pending"] {
       inset-inline-start: auto;
       inset-inline-end: -8px;
-      opacity: calc(1 - var(--user-run-top, 0));
+      opacity: var(--user-run-badge, 0);
     }
+  }
+
+  &:not([data-pending]) [data-slot="user-message-pending"] {
+    pointer-events: none;
   }
 
   [data-slot="user-message-text"] {

@@ -311,7 +311,16 @@ export function CurrentUserMessageDisplay(props: {
     () => !!props.run?.above && !!props.text && attachments().length === 0 && references().length === 0,
   )
 
-  const runPose = () => ({ meta: folded() ? 0 : 1, top: meetsAbove() ? 1 : 0, bottom: folded() ? 1 : 0 })
+  // Once shown, the pending badge stays mounted so it can fade out on delivery.
+  const badged = createMemo((shown: boolean) => shown || waiting(), false)
+
+  const runPose = () => ({
+    meta: folded() ? 0 : 1,
+    top: meetsAbove() ? 1 : 0,
+    bottom: folded() ? 1 : 0,
+    badge: waiting() && !props.run?.above ? 1 : 0,
+  })
+
   // The first paint is the resting pose; the spring's first write lands a frame later.
   const restingPose = untrack(runPose)
 
@@ -323,6 +332,7 @@ export function CurrentUserMessageDisplay(props: {
       el.style.setProperty("--user-run-meta", `${value.meta}`)
       el.style.setProperty("--user-run-top", `${value.top}`)
       el.style.setProperty("--user-run-bottom", `${value.bottom}`)
+      el.style.setProperty("--user-run-badge", `${value.badge}`)
       el.toggleAttribute("data-run-meta-hidden", value.meta === 0)
     },
     userRunSpring,
@@ -509,11 +519,17 @@ export function CurrentUserMessageDisplay(props: {
         "--user-run-meta": `${restingPose.meta}`,
         "--user-run-top": `${restingPose.top}`,
         "--user-run-bottom": `${restingPose.bottom}`,
+        "--user-run-badge": `${restingPose.badge}`,
       }}
       data-timeline-part-id={props.text ? `${props.message.id}:text:0` : undefined}
     >
-      <Show when={waiting()}>
-        <div data-slot="user-message-pending" role="img" aria-label={i18n.t("ui.message.pending")}>
+      <Show when={badged()}>
+        <div
+          data-slot="user-message-pending"
+          role="img"
+          aria-label={i18n.t("ui.message.pending")}
+          aria-hidden={waiting() ? undefined : "true"}
+        >
           <Tooltip appearance="compact" value={i18n.t("ui.message.pending")} placement="top" gutter={4}>
             <Icon name="outline-steer" size="small" />
           </Tooltip>
