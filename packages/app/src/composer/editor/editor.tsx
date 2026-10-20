@@ -331,7 +331,7 @@ export function ComposerEditor(props: ComposerEditorProps) {
           </Show>
         </ScrollView>
 
-        <div class="flex h-11 items-center ps-1.5 pe-3">
+        <div class="flex h-11 items-center px-2">
           <div
             class="flex shrink-0 items-center"
             aria-hidden={state.mode === "shell"}
@@ -873,6 +873,7 @@ export function ComposerEditorAddMenu(props: {
           icon={<Icon name="plus" />}
           variant="ghost-muted"
           size="large"
+          class="rounded-xs"
           disabled={props.disabled}
           aria-label={props.title}
         />
@@ -1265,7 +1266,7 @@ export function ComposerEditorSubmitButton(props: {
         tabIndex={props.mode === "normal" ? undefined : -1}
         icon={<Icon name={props.stopping ? "stop" : props.mode === "shell" ? "arrow-undo-down" : "arrow-up"} />}
         variant="submit"
-        class="size-7 rounded-md p-[6px]"
+        class="size-7 rounded-xs p-[6px]"
         aria-label={props.stopping ? props.stopLabel : props.sendLabel}
         onClick={(event) => {
           event.preventDefault()
