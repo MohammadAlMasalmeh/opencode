@@ -311,14 +311,16 @@ export function CurrentUserMessageDisplay(props: {
     () => !!props.run?.above && !!props.text && attachments().length === 0 && references().length === 0,
   )
 
-  // Once shown, the pending badge stays mounted so it can fade out on delivery.
-  const badged = createMemo((shown: boolean) => shown || waiting(), false)
+  // A run of waiting steers wears one badge, on its first steer.
+  const badge = createMemo(() => waiting() && !props.run?.above)
+  // Once shown, the badge stays mounted so it can fade out on delivery.
+  const badged = createMemo((shown: boolean) => shown || badge(), false)
 
   const runPose = () => ({
     meta: folded() ? 0 : 1,
     top: meetsAbove() ? 1 : 0,
     bottom: folded() ? 1 : 0,
-    badge: waiting() && !props.run?.above ? 1 : 0,
+    badge: badge() ? 1 : 0,
   })
 
   // The first paint is the resting pose; the spring's first write lands a frame later.
@@ -528,7 +530,8 @@ export function CurrentUserMessageDisplay(props: {
           data-slot="user-message-pending"
           role="img"
           aria-label={i18n.t("ui.message.pending")}
-          aria-hidden={waiting() ? undefined : "true"}
+          aria-hidden={badge() ? undefined : "true"}
+          style={{ "pointer-events": badge() ? undefined : "none" }}
         >
           <Tooltip appearance="compact" value={i18n.t("ui.message.pending")} placement="top" gutter={4}>
             <Icon name="outline-steer" size="small" />

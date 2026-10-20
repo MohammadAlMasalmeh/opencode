@@ -187,10 +187,6 @@
     }
   }
 
-  &:not([data-pending]) [data-slot="user-message-pending"] {
-    pointer-events: none;
-  }
-
   [data-slot="user-message-text"] {
     display: inline-block;
     white-space: pre-wrap;
