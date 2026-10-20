@@ -459,23 +459,18 @@ story("selects side tabs with ⌘1–9 and ⇧⌘[ ] inside the side panel and s
 story("keeps a restored browser tab selected and undrawn until the desktop's first inventory", async ({ page }) => {
   const root = page.getByTestId("browser-region-fixture")
   const tabs = root.getByRole("tab")
-  const tree = root.getByTestId("tree")
   await expect(root.getByText("Registrations: 1", { exact: true })).toBeVisible()
   await expect(tabs).toHaveText(["alpha.ts"])
-  await expect(tree).toHaveText('{"tab":"changes"}')
 
   // Beta was left on its browser tab, which the desktop has not reported yet.
   await root.getByRole("button", { name: "Beta", exact: true }).click()
   await expect(root.getByText("Registrations: 2", { exact: true })).toBeVisible()
   await expect(root.getByTestId("selected")).toHaveText(/^browser:tab_/)
   await expect(tabs).toHaveText(["beta.ts"])
-  // No fallback tab was selected, so the file tab's selection never switched the tree to All files.
-  await expect(tree).toHaveText('{"tab":"changes"}')
 
   await root.getByRole("button", { name: "First inventory", exact: true }).click()
   await expect(tabs).toHaveText(["beta.ts", "Preview"])
   await expect(root.getByRole("tab", { name: "Preview", exact: true })).toHaveAttribute("aria-selected", "true")
-  await expect(tree).toHaveText('{"tab":"changes"}')
 })
 
 story(

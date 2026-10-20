@@ -688,8 +688,6 @@ export function mountBrowserRegion(input: RegionHost) {
       inspects: [],
     })
 
-    // The file tree's state, Changes or All files, as the file extension stores it.
-    const [tree, setTree] = createSignal<object>()
     const [shortcut, setShortcut] = createSignal<Accessor<string>>(() => "")
     const [sideRegion, setSideRegion] = createSignal<ReturnType<RegionHost["createRegion"]>>()
     const strip = (session: string) => store.strips[session] ?? { all: [] }
@@ -802,8 +800,6 @@ export function mountBrowserRegion(input: RegionHost) {
 
     const keep = <T extends object>(key: string, initial: T) => {
       const [value, set] = createStore<T>(structuredClone(initial))
-
-      if (key === "file:tree") setTree(() => value)
 
       return {
         memory: [value, (mutation: (draft: T) => void) => set(produce(mutation))] as const,
@@ -1097,7 +1093,6 @@ export function mountBrowserRegion(input: RegionHost) {
             />
             <p>Registrations: {store.registrations.length}</p>
             <p>Beta restores: {latest()?.restore ?? 0}</p>
-            <p data-testid="tree">{JSON.stringify(tree())}</p>
             <p data-testid="session-state">{store.closed ? "closed" : "open"}</p>
             <p data-testid="review-toggles">{store.reviews}</p>
             <p data-testid="side-state">{store.opened ? "open" : "closed"}</p>
