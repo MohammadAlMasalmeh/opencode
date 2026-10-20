@@ -21,8 +21,9 @@ export const userRunSpring = { omega: (2 * Math.PI) / 0.4, zeta: 1 }
 
 /**
  * Like the iOS app's grouped corners, consecutive user messages with nothing but turn gaps between them read as
- * one block under a single meta line. Only sent text bubbles with the same agent and model join, and an agent,
- * model, location or compaction boundary between them ends the run even when the timeline hides its notice.
+ * one block under a single meta line. Text bubbles with the same agent and model join, and steers waiting for
+ * delivery group the same way, but never with a sent message. An agent, model, location or compaction boundary
+ * between them ends the run even when the timeline hides its notice.
  */
 export function userMessageRuns(
   rows: readonly TimelineRow.TimelineRow[],
@@ -40,8 +41,7 @@ export function userMessageRuns(
     return (
       !!upper &&
       !!lower &&
-      upper.kind === "sent" &&
-      lower.kind === "sent" &&
+      upper.kind === lower.kind &&
       upper.text &&
       lower.text &&
       !lower.attachments &&

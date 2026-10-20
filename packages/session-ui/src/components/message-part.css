@@ -176,11 +176,13 @@
 
   &[data-pending] {
     position: relative;
-    margin-block-start: 8px;
+    margin-block-start: calc(8px * (1 - var(--user-run-top, 0)));
 
+    /* A run of waiting steers wears one badge, on its first bubble. */
     [data-slot="user-message-pending"] {
       inset-inline-start: auto;
       inset-inline-end: -8px;
+      opacity: calc(1 - var(--user-run-top, 0));
     }
   }
 

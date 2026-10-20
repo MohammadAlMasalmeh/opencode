@@ -67,7 +67,7 @@ describe("userMessageRuns", () => {
     })
   })
 
-  test("pending input never joins a sent message or another pending one", () => {
+  test("waiting steers group together but never with a sent message", () => {
     expect(
       runs([user("msg_1", 1), user("msg_2", 2), user("msg_3", 3), user("msg_4", 4)], {
         msg_3: { kind: "pending" },
@@ -76,8 +76,31 @@ describe("userMessageRuns", () => {
     ).toEqual({
       msg_1: { above: false, below: true },
       msg_2: { above: true, below: false },
+      msg_3: { above: false, below: true },
+      msg_4: { above: true, below: false },
+    })
+  })
+
+  test("a run of steers stays one run as it delivers", () => {
+    const steers = [user("msg_1", 1), assistant("msg_2", "msg_1", 2), user("msg_3", 3), user("msg_4", 4)]
+
+    const delivered = { msg_1: alone, msg_3: { above: false, below: true }, msg_4: { above: true, below: false } }
+
+    expect(runs(steers, { msg_3: { kind: "pending" }, msg_4: { kind: "pending" } })).toEqual(delivered)
+    expect(runs(steers)).toEqual(delivered)
+  })
+
+  test("a steer delivered ahead of the rest leaves the run", () => {
+    expect(
+      runs([user("msg_1", 1), assistant("msg_2", "msg_1", 2), user("msg_3", 3), user("msg_4", 4), user("msg_5", 5)], {
+        msg_4: { kind: "pending" },
+        msg_5: { kind: "pending" },
+      }),
+    ).toEqual({
+      msg_1: alone,
       msg_3: alone,
-      msg_4: alone,
+      msg_4: { above: false, below: true },
+      msg_5: { above: true, below: false },
     })
   })
 

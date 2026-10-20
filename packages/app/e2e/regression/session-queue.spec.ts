@@ -846,6 +846,31 @@ for (const [action, status] of [
   })
 }
 
+test("waiting steers group under one Pending line, each keeping its own actions beside its bubble", async ({
+  page,
+}) => {
+  const mock = createQueueMock(
+    ["U2: Also check the retry path.", "U3: And rebase on beta first."],
+    [{ id: "msg_queue_delivered", type: "user", text: "First prompt", time: { created: 1 } }],
+  )
+
+  mock.rows.forEach((row) => (row.delivery = "steer"))
+  await openQueue(page, mock)
+  const first = userRow(page, mock.rows[0].id)
+  const last = userRow(page, mock.rows[1].id)
+  await expect(last).toContainText("U3: And rebase on beta first.")
+  await expect(first.locator('[data-component="user-message"]')).toHaveAttribute("data-pending", "true")
+
+  // The run's last steer carries the one Pending line; the first folds its line away.
+  await expect(last.locator('[data-slot="user-message-meta"]')).toContainText("Pending")
+  await expect(first.locator('[data-slot="user-message-meta"]')).toBeHidden()
+
+  await first.locator('[data-slot="user-message-text"]').hover()
+  await expect(first.locator('[data-slot="user-message-run-actions"]')).toHaveCSS("opacity", "1")
+  await first.getByRole("button", { name: "Move to queue" }).click()
+  await expect.poll(() => mock.changes).toEqual([{ inboxID: mock.rows[0].id, action: "queue" }])
+})
+
 test("/undo returns a pending steer's review comment to the composer", async ({ page }) => {
   const display = "tighten this"
   const comment = "check the guard"
