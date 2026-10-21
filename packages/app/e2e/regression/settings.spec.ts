@@ -1697,6 +1697,13 @@ for (const viewport of [
     await page.mouse.wheel(0, 10000)
     await expect(main).toHaveJSProperty("scrollTop", 0)
 
+    if (viewport.name === "desktop") {
+      // Wheel over the settings gutter scrolls the page beside it.
+      await settings.hover({ position: { x: 16, y: 200 } })
+      await page.mouse.wheel(0, 200)
+      await expect.poll(() => panel.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+    }
+
     const pages = [
       "Preferences",
       "Appearance",
