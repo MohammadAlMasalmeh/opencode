@@ -835,7 +835,7 @@ test("image files load into the review panel and keep it painted while loading",
   ).toEqual([])
 })
 
-test("video files over 25 MB play in the viewer, expand into the theatre overlay, and collapse on Escape without remounting", async ({
+test("video files stream into the viewer behind a loading state, expand into the theatre overlay, and collapse on Escape without remounting", async ({
   page,
 }) => {
   const directory = "C:/OpenCode/ReviewVideo"
@@ -859,13 +859,29 @@ test("video files over 25 MB play in the viewer, expand into the theatre overlay
       panes: { ses_reviewvideo: { review: true } },
     },
   })
-  await page.route(`**/api/fs/read/${file}*`, (route) =>
-    route.fulfill({
-      status: 200,
-      headers: { "access-control-allow-origin": "*", "content-type": "application/octet-stream" },
-      body: mp4,
-    }),
-  )
+  // The app only checks the file with a HEAD; the video element streams it with range requests, held until released.
+  const ranged = Promise.withResolvers<void>()
+  const release = Promise.withResolvers<void>()
+  await page.route(`**/api/fs/read/${file}*`, async (route) => {
+    const headers = { "access-control-allow-origin": "*", "accept-ranges": "bytes", "content-type": "video/mp4" }
+
+    if (route.request().method() === "HEAD")
+      return route.fulfill({ status: 200, headers: { ...headers, "content-length": String(mp4.length) } })
+
+    const range = /^bytes=(\d+)-(\d*)$/.exec((await route.request().headerValue("range")) ?? "")
+
+    if (!range) return route.fulfill({ status: 200, headers, body: mp4 })
+    ranged.resolve()
+    await release.promise
+    const start = Number(range[1])
+    const end = Math.min(range[2] ? Number(range[2]) : mp4.length - 1, start + 4_000_000, mp4.length - 1)
+
+    return route.fulfill({
+      status: 206,
+      headers: { ...headers, "content-range": `bytes ${start}-${end}/${mp4.length}` },
+      body: mp4.subarray(start, end + 1),
+    })
+  })
 
   const panel = page.locator("#review-panel")
   await openFileLauncher(panel)
@@ -877,7 +893,13 @@ test("video files over 25 MB play in the viewer, expand into the theatre overlay
   const video = stage.locator('video[data-slot="artifact-media"]')
   const fullscreen = stage.getByRole("button", { name: "Enter full screen", exact: true })
   const exitFullscreen = stage.getByRole("button", { name: "Exit full screen", exact: true })
+  const loading = stage.getByRole("status", { name: "Loading", exact: true })
 
+  await ranged.promise
+  await expect(loading).toBeVisible()
+  expect(await video.getAttribute("src")).toMatch(new RegExp(`^${SERVER}/api/fs/read/${file}\\?`))
+  release.resolve()
+  await expect(loading).toHaveCount(0)
   await expect(video).toBeVisible()
   await expect(toolbar).toContainText("64 × 36")
   await expect(toolbar).toContainText("0:01")

@@ -9,7 +9,10 @@ import { useWorkspaceLocation } from "@/workspaces/location"
 import { useLanguage } from "@/runtime/i18n/language"
 import { useExtensionAttachment } from "@/runtime/extension/host-apis"
 import { createPathHelpers } from "./path"
-import { fileContentFromBytes } from "./artifact"
+import { artifactKind } from "@opencode/util/artifact"
+import { usePlatform } from "@/runtime/platform/platform"
+import { fileStreamUrl } from "@/runtime/server/api"
+import { fileContentFromBytes, streamedFileContent, streamedKinds } from "./artifact"
 import {
   approxBytes,
   evictContentLru,
@@ -42,6 +45,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     const sdk = useWorkspaceLocation()
     const params = useParams()
     const serverSDK = useServerSDK()
+    const platform = usePlatform()
     const language = useLanguage()
     const extensions = useExtensionAttachment()
 
@@ -164,6 +168,19 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       })
     }
 
+    // Media plays from the server's ranged reads, so only a HEAD runs here, for the file's size. A failed HEAD has no
+    // body; the full read that follows reports the server's error.
+    const read = (file: string, request: { path: string; location: { directory: string } }) => {
+      const download = () => serverSDK.api.file.read(request).then((data) => fileContentFromBytes(file, data))
+
+      if (!streamedKinds.has(artifactKind(file))) return download()
+      const url = fileStreamUrl(serverSDK.http, { path: request.path, directory: request.location.directory })
+
+      return (platform.fetch ?? fetch)(url, { method: "HEAD" }).then((response) =>
+        response.ok ? streamedFileContent(file, url, response) : download(),
+      )
+    }
+
     const load = (input: string, options?: { force?: boolean; silent?: boolean }) => {
       const file = path.normalize(input)
 
@@ -199,11 +216,9 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
         promise: Promise.resolve(),
       }
 
-      entry.promise = serverSDK.api.file
-        .read(request)
-        .then((data) => {
+      entry.promise = read(file, request)
+        .then((content) => {
           if (scope() !== directory) return
-          const content = fileContentFromBytes(file, data)
           setLoaded(file, content)
           touchFileContent(file, approxBytes(content))
           evictContent(new Set([file]))

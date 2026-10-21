@@ -10,6 +10,7 @@ export default {
   "view.fullscreen": "Enter full screen",
   "view.exitFullscreen": "Exit full screen",
   "view.binary": "Binary file · {{size}}",
+  "view.loadFailed": "Couldn't load this file.",
   "view.table.rows.one": "{{count}} row",
   "view.table.rows.other": "{{count}} rows",
   "view.table.columns.one": "{{count}} column",

@@ -18,6 +18,7 @@ import { Button } from "@opencode/ui/button"
 import { FileIcon } from "@opencode/ui/file-icon"
 import { SegmentedControl, SegmentedControlItem } from "@opencode/ui/segmented-control"
 import { ScrollView } from "@opencode/ui/scroll-view"
+import { Spinner } from "@opencode/ui/spinner"
 import { Markdown } from "@opencode/session-ui/markdown"
 import { MarkdownProvider, useMarkdown } from "@opencode/session-ui/context/markdown"
 import { artifactKind, type ArtifactKind } from "@opencode/util/artifact"
@@ -123,7 +124,7 @@ export default function ArtifactView(props: {
   // A file that fails also drops the facts its viewer reported, such as a page count.
   const fail = (reason?: string) => change({ undecodable: true, info: {}, reason })
 
-  const media = { onInfo: (info: ArtifactInfo) => change({ info }), onError: () => fail() }
+  const media = { onInfo: (info: ArtifactInfo) => change({ info }), onError: () => fail(ctx.t("view.loadFailed")) }
 
   const size = () => formatBytes(locale.locale(), contentBytes(props.content))
 
@@ -295,8 +296,11 @@ function OpenInBrowserButton(props: { session: MountedSession; path: string }) {
   )
 }
 
-function createBlobUrl(content: () => FileContent) {
+function createMediaUrl(content: () => FileContent) {
   return createMemo(() => {
+    const streamed = content().url
+
+    if (streamed) return streamed
     const value = blobUrlFromContent(content())
     onCleanup(() => URL.revokeObjectURL(value))
 
@@ -304,9 +308,24 @@ function createBlobUrl(content: () => FileContent) {
   })
 }
 
+/** Holds the pane until the media's first frame, so a file still streaming never shows as blank. */
+function MediaLoading() {
+  const ctx = useExtension()
+
+  return (
+    <div
+      role="status"
+      aria-label={ctx.t("common.loading")}
+      class="pointer-events-none absolute inset-0 flex items-center justify-center text-text-weak"
+    >
+      <Spinner class="size-4" />
+    </div>
+  )
+}
+
 /** Images and SVG previews: each decoded image owns its viewport. */
 function ArtifactImage(props: MediaProps) {
-  const url = createBlobUrl(() => props.content)
+  const url = createMediaUrl(() => props.content)
 
   return (
     <Show when={url()} keyed>
@@ -485,6 +504,9 @@ function ImageStage(props: MediaProps & { src: string }) {
           zoomAt(1 / fit(), event.clientX, event.clientY)
         }}
       />
+      <Show when={!view.imageWidth}>
+        <MediaLoading />
+      </Show>
       <div class="absolute end-3 top-3">
         <Button size="small" variant="neutral" disabled={view.zoom === 1} onClick={reset}>
           {ctx.t("view.fit")}
@@ -496,9 +518,10 @@ function ImageStage(props: MediaProps & { src: string }) {
 
 function ArtifactVideo(props: MediaProps) {
   const ctx = useExtension()
-  const url = createBlobUrl(() => props.content)
+  const url = createMediaUrl(() => props.content)
   // Fullscreen belongs to one video: a new file starts fitted in the pane.
   const [expandedUrl, setExpandedUrl] = createSignal<string>()
+  const [loadedUrl, setLoadedUrl] = createSignal<string>()
   const [paused, setPaused] = createSignal(true)
   const [active, setActive] = createSignal(false)
   const [box, setBox] = createStore({ left: 0, top: 0, ready: false })
@@ -629,7 +652,11 @@ function ArtifactVideo(props: MediaProps) {
             props.onInfo({ width: el.videoWidth, height: el.videoHeight, duration: el.duration })
             measure()
           }}
+          onLoadedData={() => setLoadedUrl(url())}
         />
+        <Show when={loadedUrl() !== url()}>
+          <MediaLoading />
+        </Show>
         <button
           type="button"
           data-slot="artifact-video-fullscreen"
@@ -676,7 +703,7 @@ function ArtifactVideo(props: MediaProps) {
 }
 
 function ArtifactAudio(props: MediaProps) {
-  const url = createBlobUrl(() => props.content)
+  const url = createMediaUrl(() => props.content)
 
   return (
     <div data-slot="artifact-stage" class="relative min-h-0 flex-1 overflow-auto">
@@ -701,7 +728,7 @@ function ArtifactAudio(props: MediaProps) {
 }
 
 function ArtifactFrame(props: { path: string; content: FileContent; kind: "pdf" | "html" }) {
-  const url = createBlobUrl(() => props.content)
+  const url = createMediaUrl(() => props.content)
   // PDF Open Parameters: start with the thumbnail pane closed and the page fitted to the pane width.
   const src = () => (props.kind === "pdf" ? `${url()}#navpanes=0&view=FitH` : url())
 
@@ -789,7 +816,7 @@ const specimenSizes = [12, 16, 24, 40, 64]
 
 function ArtifactFont(props: { path: string; content: FileContent }) {
   const ctx = useExtension()
-  const url = createBlobUrl(() => props.content)
+  const url = createMediaUrl(() => props.content)
   const family = createMemo(() => `artifact-${Math.random().toString(36).slice(2)}`)
 
   // The document's font set holds the face while it shows.

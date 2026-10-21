@@ -106,6 +106,8 @@ export type FileContent = {
   mimeType?: string
   /** On-disk size when the bytes themselves are not retained. */
   size?: number
+  /** A URL the server streams the file from with range requests, set instead of `bytes` for images, audio and video. */
+  url?: string
 }
 
 /** A range of lines in a file, or in one side of its diff. */
