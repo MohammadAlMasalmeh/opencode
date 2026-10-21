@@ -86,6 +86,16 @@ describe("queuedPromptRows", () => {
     expect(queuedPromptRows(items, edits)).toEqual(visible)
   })
 
+  test("shows each of several edits in flight on its own row", () => {
+    const second = sent({ original: "msg_other", text: "other edited", moved: { msg_other: "msg_other_copy" } })
+
+    expect(queuedPromptRows([queued[0], other, later], [sent(), second])).toEqual([
+      edited("msg_original"),
+      { id: "msg_other", text: "other edited", attachments: 1, pending: true },
+      row(later, true),
+    ])
+  })
+
   test("hides prompts the server confirmed gone until its events catch up", () => {
     expect(queuedPromptRows([queued[0], other], [], ["msg_original"])).toEqual([row(other)])
   })

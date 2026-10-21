@@ -511,29 +511,38 @@ for (const delivery of ["steer", "queue"] as const) {
     await expect(texts).toHaveText(["first queued prompt", "second queued prompt, edited"])
     await expect(edited).toHaveAttribute("aria-busy", "true")
 
-    // Clicking the pending row is ignored; another row still opens for editing.
+    // Clicking the pending row is ignored; another row still opens, and its edit waits its turn.
     await edited.locator('[data-action="session-queue-edit"]').click({ force: true })
     await expect(view.input).toHaveText("")
     await view.rows.getByText("first queued prompt", { exact: true }).click()
     await expect(view.input).toHaveText("first queued prompt")
     await expect(view.input).toBeFocused()
-    await view.input.press("Escape")
+    await view.input.press("End")
+    await view.input.pressSequentially(", edited too")
+    await view.input.press("Enter")
     await expect(view.input).toHaveText("")
+    // Until the server answers, a steered edit also waits in the strip.
+    await expect(texts).toHaveText(["first queued prompt, edited too", "second queued prompt, edited"])
+
+    const final =
+      delivery === "queue"
+        ? ["first queued prompt, edited too", "second queued prompt, edited"]
+        : ["first queued prompt, edited too"]
 
     admission.release()
     await cancellation.arrived
     cancellation.release()
 
-    await expect(texts).toHaveText(
-      delivery === "queue" ? ["first queued prompt", "second queued prompt, edited"] : ["first queued prompt"],
-    )
+    await expect(texts).toHaveText(final)
     await expect(view.rows.and(page.locator('[aria-busy="true"]'))).toHaveCount(0)
-    // Exactly one admission of the edit, with its attachment, and the original is gone.
-    expect(mock.prompts).toHaveLength(1)
+    // The steered or queued edit was admitted once, with its attachment, and no original is left.
     expect(mock.prompts[0]).toMatchObject({ text: "second queued prompt, edited", delivery })
     expect(mock.prompts[0].files?.map((file) => file.uri.startsWith("data:image/png;"))).toEqual([true])
-    expect(mock.rows.filter((row) => row.delivery === "queue").map((row) => row.payload.text)).toEqual(
-      delivery === "queue" ? ["first queued prompt", "second queued prompt, edited"] : ["first queued prompt"],
+    await expect
+      .poll(() => mock.rows.filter((row) => row.delivery === "queue").map((row) => row.payload.text))
+      .toEqual(final)
+    expect(mock.rows.filter((row) => row.delivery === "steer").map((row) => row.payload.text)).toEqual(
+      delivery === "steer" ? ["second queued prompt, edited"] : [],
     )
     await expect(view.input).toHaveText("")
   })

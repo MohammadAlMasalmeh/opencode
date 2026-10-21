@@ -64,7 +64,22 @@ export function createSessionQueue(input: {
 
   const notify = () => showToast({ title: language.t("common.requestFailed") })
   const settle = (original: string) => setState("sent", (sent) => sent.filter((edit) => edit.original !== original))
-  const hide = (ids: string[]) => setState("gone", (gone) => [...gone, ...ids])
+  // A missed event would hide a row for good, so each hidden ID expires. A pending re-sync is no
+  // substitute: it drops rows from the pending list but leaves their materialized messages in the
+  // timeline as if delivered.
+  const expiries = new Set<ReturnType<typeof setTimeout>>()
+  onCleanup(() => expiries.forEach(clearTimeout))
+
+  const hide = (ids: string[]) => {
+    setState("gone", (gone) => [...gone, ...ids])
+
+    const timer = setTimeout(() => {
+      expiries.delete(timer)
+      setState("gone", (gone) => gone.filter((id) => !ids.includes(id)))
+    }, 30_000)
+
+    expiries.add(timer)
+  }
 
   const mutation = useMutation(() => ({
     // Changes run one at a time in the order they were made, so an edit confirmed while another is
@@ -135,7 +150,7 @@ export function createSessionQueue(input: {
     },
     onSuccess: (_data, change) => {
       if (change.type !== "edit") return
-      hide(Object.keys(change.moved))
+      hide(Object.keys(state.sent.find((edit) => edit.original === change.original)?.moved ?? change.moved))
       settle(change.original)
     },
     onError: (_error, change) => {
@@ -146,7 +161,7 @@ export function createSessionQueue(input: {
       settle(change.original)
 
       if (sent?.admitted) return
-      restoreEdit(change.original, change.prompt)
+      restoreEdit(change.prompt)
     },
     onSettled: () => data.session.pending.sync(input.sessionID).catch(() => undefined),
   }))
@@ -173,28 +188,11 @@ export function createSessionQueue(input: {
     setState("editing", undefined)
   })
 
-  // A failed edit returns to the composer: on its original while that is still queued, otherwise
-  // appended to whatever the composer holds now, so nothing typed is lost.
-  const restoreEdit = (original: string, prompt: Prompt) => {
+  // A failed edit returns to the composer, merged into what it holds now (or into the draft an
+  // open edit stashed), so nothing typed is lost.
+  const restoreEdit = (prompt: Prompt) => {
     if (state.editing) {
       setState("editing", "stash", "prompt", (stash) => mergePrompt(stash, prompt))
-
-      return
-    }
-
-    if (queued().some((item) => item.id === original) && input.draft.mode.current() === "normal") {
-      const draft = input.draft.current()
-      setState("editing", {
-        id: original,
-        stash: {
-          prompt: clonePrompt(draft),
-          cursor: input.draft.cursor() ?? promptLength(draft),
-          mode: "normal",
-          retry: input.draft.retry.current(),
-        },
-      })
-      input.draft.set(prompt, promptLength(prompt))
-      input.restoreFocus(promptLength(prompt))
 
       return
     }
@@ -231,12 +229,19 @@ export function createSessionQueue(input: {
     // Each ID is recorded before sending: the server can admit a prompt whose response then fails.
     const replacements: string[] = []
 
+    // An edit's pending rows follow the queue as the server has it now, keeping the IDs minted at confirm.
+    const moved = Object.fromEntries(
+      ordered.slice(changed).map((item) => [item.id, replace?.moved[item.id] ?? SessionMessage.ID.create()]),
+    )
+
+    if (replace) setState("sent", (edit) => edit.original === replace.original, "moved", moved)
+
     for (const item of ordered.slice(changed)) {
       const admission =
         item.id === replace?.original
           ? replace.admission
           : {
-              id: replace?.moved[item.id] ?? SessionMessage.ID.create(),
+              id: moved[item.id],
               sessionID: input.sessionID,
               text: item.payload.text,
               files: item.payload.files?.map((file) => ({
@@ -409,6 +414,9 @@ export function createSessionQueue(input: {
       attachments.every((attachment, index) => attachment.id === original[index].id)
 
     if (pristine && delivery === "queue") return cancelEdit()
+
+    // An unchanged prompt steers in place instead of being replaced.
+    if (pristine) return void steer(editing.id)
     // A queued edit re-admits the prompts after it, so they are pending too; their IDs are minted now.
     const after = delivery === "queue" ? queued().slice(queued().findIndex((entry) => entry.id === editing.id) + 1) : []
 
@@ -475,14 +483,15 @@ export type SessionQueueView = Pick<
 export function queuedPromptRows(items: QueuedPrompt[], sent: SentEdit[] = [], gone: string[] = []) {
   const queued = items.filter((item) => !gone.includes(item.id))
   const listed = new Set(queued.map((item) => item.id))
+  const moves = sent.flatMap((edit) => Object.entries(edit.moved))
 
   return queued.flatMap((item): { id: string; text: string; attachments: number; pending?: boolean }[] => {
-    const rewrite = sent.find((edit) => item.id in edit.moved || Object.values(edit.moved).includes(item.id))
-    const edit = sent.find((entry) => entry.original === item.id || entry.moved[entry.original] === item.id)
+    // The latest edit of this prompt, on its original row or, once that is gone, on its replacement.
+    const edit = sent.findLast((entry) => entry.original === item.id || entry.moved[entry.original] === item.id)
 
-    if (rewrite && Object.entries(rewrite.moved).some(([old, next]) => next === item.id && listed.has(old))) return []
+    if (moves.some(([old, next]) => next === item.id && listed.has(old))) return []
 
-    if (edit?.admitted && edit.delivery === "steer") return []
+    if (sent.some((entry) => entry.original === item.id && entry.admitted && entry.delivery === "steer")) return []
 
     return [
       {
@@ -492,7 +501,7 @@ export function queuedPromptRows(items: QueuedPrompt[], sent: SentEdit[] = [], g
           ? edit.attachments
           : (item.payload.files?.length ?? 0) +
             (readPromptPresentation(item.payload.metadata)?.attachments.length ?? 0),
-        pending: rewrite ? true : undefined,
+        pending: moves.some(([old, next]) => old === item.id || next === item.id) ? true : undefined,
       },
     ]
   })
