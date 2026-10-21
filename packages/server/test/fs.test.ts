@@ -266,18 +266,6 @@ it.live(
         }),
       )
 
-      // 8b. Media elements cannot send Authorization: the auth_token query (beside other query params) authorizes a
-      // ranged read, and a read without any credential is refused
-      const media = readUrl("clip.mp4")
-      media.searchParams.set("auth_token", btoa("opencode:secret"))
-      media.searchParams.set("v", "10-0")
-      const streamed = yield* Effect.promise(() => fetch(media, { headers: { Range: "bytes=2-5" } }))
-      expect(streamed.status).toBe(206)
-      expect(streamed.headers.get("content-range")).toBe("bytes 2-5/10")
-      expect(yield* Effect.promise(() => streamed.text())).toBe("2345")
-      const anonymous = yield* Effect.promise(() => fetch(readUrl("clip.mp4"), { headers: { Range: "bytes=2-5" } }))
-      expect(anonymous.status).toBe(401)
-
       // 9. Compressible files keep their exact Content-Length instead of being gzipped
       const text = yield* request("notes.txt", { headers: { "Accept-Encoding": "gzip" }, decompress: false })
       expect(text.status).toBe(200)

@@ -173,8 +173,11 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     const read = (file: string, request: { path: string; location: { directory: string } }) => {
       const download = () => serverSDK.api.file.read(request).then((data) => fileContentFromBytes(file, data))
 
-      if (!streamedKinds.has(artifactKind(file))) return download()
-      const url = fileStreamUrl(serverSDK.http, { path: request.path, directory: request.location.directory })
+      const url = streamedKinds.has(artifactKind(file))
+        ? fileStreamUrl(serverSDK.http, { path: request.path, directory: request.location.directory })
+        : undefined
+
+      if (!url) return download()
 
       return (platform.fetch ?? fetch)(url, { method: "HEAD" }).then((response) =>
         response.ok ? streamedFileContent(file, url, response) : download(),
