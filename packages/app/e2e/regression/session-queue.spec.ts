@@ -409,6 +409,8 @@ test("editing restores the existing draft and replaces only the original queue p
     "third queued prompt",
   ])
   await expect(view.input).toHaveText("my in-progress draft")
+  // The strip shows the edit before the server confirms it; wait for the rewrite to finish.
+  await expect.poll(() => mock.changes.length).toBe(2)
   // One rewrite from the edited position: the replacement, then the prompts after it.
   expect(mock.prompts.map((prompt) => prompt.text)).toEqual([
     "tighten the error copy and add a retry hint",
@@ -416,8 +418,8 @@ test("editing restores the existing draft and replaces only the original queue p
   ])
   expect(mock.prompts.every((prompt) => prompt.delivery === "queue" && prompt.resume === false)).toBe(true)
   expect(mock.changes).toEqual([
-    { inboxID: "inb_seed_2", action: "cancel" },
     { inboxID: "inb_seed_3", action: "cancel" },
+    { inboxID: "inb_seed_2", action: "cancel" },
   ])
   expect(mock.log[0]).toBe("prompt:queue")
 })
@@ -470,6 +472,70 @@ for (const change of ["reorder", "edit"] as const) {
     await expect(view.input).toHaveText("")
     expect(mock.prompts).toEqual([])
     expect(mock.changes).toEqual([])
+  })
+}
+
+for (const delivery of ["steer", "queue"] as const) {
+  test(`an edit sent as a ${delivery} stays interactive while the server is slow to confirm it`, async ({ page }) => {
+    const mock = createQueueMock(["first queued prompt", "second queued prompt"])
+    mock.rows[1].payload.files = [
+      {
+        data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==",
+        mime: "image/png",
+        source: { type: "inline" },
+        name: "shot.png",
+      },
+    ]
+    const view = await openQueue(page, mock)
+    // A loaded server answers admissions and cancellations late; hold both until the strip is checked.
+    const admission = await holdRoute(page, new RegExp(`/api/session/${sessionID}/prompt(\\?|$)`), { method: "POST" })
+
+    const cancellation = await holdRoute(page, new RegExp(`/api/session/${sessionID}/inbox/[^/?]+(\\?|$)`), {
+      method: "DELETE",
+    })
+
+    const texts = view.rows.locator('[data-action="session-queue-edit"]')
+
+    await view.rows.getByText("second queued prompt", { exact: true }).click()
+    await expect(view.input).toHaveText("second queued prompt")
+    await expect(view.composer.getByRole("img", { name: "shot.png" })).toBeVisible()
+    await expect(view.input).toBeFocused()
+    await view.input.press("End")
+    await view.input.pressSequentially(", edited")
+    await view.input.press(delivery === "queue" ? "Enter" : "ControlOrMeta+Enter")
+    await admission.arrived
+
+    // The composer is free at once and the strip shows the edit, pending, in the original's place.
+    const edited = view.rows.filter({ hasText: "second queued prompt, edited" })
+    await expect(view.input).toHaveText("")
+    await expect(texts).toHaveText(["first queued prompt", "second queued prompt, edited"])
+    await expect(edited).toHaveAttribute("aria-busy", "true")
+
+    // Clicking the pending row is ignored; another row still opens for editing.
+    await edited.locator('[data-action="session-queue-edit"]').click({ force: true })
+    await expect(view.input).toHaveText("")
+    await view.rows.getByText("first queued prompt", { exact: true }).click()
+    await expect(view.input).toHaveText("first queued prompt")
+    await expect(view.input).toBeFocused()
+    await view.input.press("Escape")
+    await expect(view.input).toHaveText("")
+
+    admission.release()
+    await cancellation.arrived
+    cancellation.release()
+
+    await expect(texts).toHaveText(
+      delivery === "queue" ? ["first queued prompt", "second queued prompt, edited"] : ["first queued prompt"],
+    )
+    await expect(view.rows.and(page.locator('[aria-busy="true"]'))).toHaveCount(0)
+    // Exactly one admission of the edit, with its attachment, and the original is gone.
+    expect(mock.prompts).toHaveLength(1)
+    expect(mock.prompts[0]).toMatchObject({ text: "second queued prompt, edited", delivery })
+    expect(mock.prompts[0].files?.map((file) => file.uri.startsWith("data:image/png;"))).toEqual([true])
+    expect(mock.rows.filter((row) => row.delivery === "queue").map((row) => row.payload.text)).toEqual(
+      delivery === "queue" ? ["first queued prompt", "second queued prompt, edited"] : ["first queued prompt"],
+    )
+    await expect(view.input).toHaveText("")
   })
 }
 

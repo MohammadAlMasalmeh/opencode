@@ -20,6 +20,20 @@ import { showToast } from "@/shell/notifications/toast"
 
 export type QueuedPrompt = Extract<SessionInboxInfo, { type: "user" }>
 
+// An edit confirmed from the composer while the server catches up. The strip shows it in place of
+// the original until the server's queue reflects it, so a slow round trip never looks undone.
+export type SentEdit = {
+  original: string
+  delivery: ComposerDelivery
+  text: string
+  attachments: number
+  // Each inbox ID the edit replaces, mapped to the ID admitted in its place: the original's
+  // replacement and, for a queued edit, the prompts after it that are re-admitted to keep their order.
+  moved: Record<string, string>
+  // The server admitted every replacement, so a later failure must not resend the edit.
+  admitted: boolean
+}
+
 type EditStash = {
   prompt: Prompt
   cursor: number
@@ -39,19 +53,31 @@ export function createSessionQueue(input: {
   const server = useServerSDK()
   const location = useWorkspaceLocation()
   const language = useLanguage()
-  const [state, setState] = createStore<{ editing?: { id: string; stash: EditStash } }>({})
+
+  const [state, setState] = createStore<{
+    editing?: { id: string; stash: EditStash }
+    sent: SentEdit[]
+    // Prompts the server confirmed have left the queue. The pending list only drops them when the
+    // server's events arrive, which lag on a loaded server, so the strip hides them until then.
+    gone: string[]
+  }>({ sent: [], gone: [] })
+
   const notify = () => showToast({ title: language.t("common.requestFailed") })
+  const settle = (original: string) => setState("sent", (sent) => sent.filter((edit) => edit.original !== original))
+  const hide = (ids: string[]) => setState("gone", (gone) => [...gone, ...ids])
 
   const mutation = useMutation(() => ({
+    // Changes run one at a time in the order they were made, so an edit confirmed while another is
+    // in flight waits for it instead of being dropped.
+    scope: { id: `session-queue:${input.sessionID}` },
     mutationFn: async (
       change:
         | { type: "reorder"; inboxIDs: string[] }
         | { type: "undo"; item: QueuedPrompt; prompt: Prompt; context: ContextItem[] }
         | {
             type: "edit"
-            inboxIDs: string[]
             original: string
-            replacement: string
+            moved: Record<string, string>
             item: QueuedPrompt | undefined
             prompt: Prompt
             text: string
@@ -62,14 +88,8 @@ export function createSessionQueue(input: {
 
       if (change.type === "undo") {
         await server.api.session.inbox.cancel({ sessionID: input.sessionID, inboxID: change.item.id })
-        const draft = input.draft.current()
-
-        // A prompt of only comments or attachments adds no text, so it needs no paragraph break.
-        const prompt = !promptLength(draft)
-          ? [...change.prompt, ...draft.filter(isAttachment)]
-          : promptLength(change.prompt)
-            ? appendPrompt(draft, change.prompt)
-            : [...clonePrompt(draft), ...change.prompt.filter(isAttachment)]
+        hide([change.item.id])
+        const prompt = mergePrompt(input.draft.current(), change.prompt)
 
         input.draft.set(prompt, promptLength(prompt))
         change.context.forEach((item) => input.draft.context.add(item))
@@ -88,14 +108,14 @@ export function createSessionQueue(input: {
 
       // Admit before cancelling so a failed replacement never discards the original. A queued edit
       // rebuilds its position in one rewrite, which leaves the queue unchanged if any admission fails.
-      const admission = { ...replacement, id: change.replacement, delivery: change.delivery }
+      const admission = { ...replacement, id: change.moved[change.original], delivery: change.delivery }
 
-      if (change.delivery === "queue") {
-        await rewrite(change.inboxIDs, { original: change.original, admission: { ...admission, resume: false } })
-        cancelEdit()
-
-        return
-      }
+      if (change.delivery === "queue")
+        return rewrite(undefined, {
+          original: change.original,
+          admission: { ...admission, resume: false },
+          moved: change.moved,
+        })
 
       // Like a queued edit, an original the server delivered meanwhile keeps the edit draft instead of sending twice.
       const pending = await server.api.session.inbox.list({ sessionID: input.sessionID })
@@ -108,10 +128,26 @@ export function createSessionQueue(input: {
         throw error
       })
       void background?.move()
-      await server.api.session.inbox.cancel({ sessionID: input.sessionID, inboxID: change.original })
-      cancelEdit()
+      setState("sent", (edit) => edit.original === change.original, "admitted", true)
+      // Cancelling is a no-op once the original is gone, so one retry is safe.
+      const cancel = () => server.api.session.inbox.cancel({ sessionID: input.sessionID, inboxID: change.original })
+      await cancel().catch(cancel)
     },
-    onError: notify,
+    onSuccess: (_data, change) => {
+      if (change.type !== "edit") return
+      hide(Object.keys(change.moved))
+      settle(change.original)
+    },
+    onError: (_error, change) => {
+      notify()
+
+      if (change.type !== "edit") return
+      const sent = state.sent.find((edit) => edit.original === change.original)
+      settle(change.original)
+
+      if (sent?.admitted) return
+      restoreEdit(change.original, change.prompt)
+    },
     onSettled: () => data.session.pending.sync(input.sessionID).catch(() => undefined),
   }))
 
@@ -121,13 +157,13 @@ export function createSessionQueue(input: {
       .filter((item): item is QueuedPrompt => item.type === "user" && item.delivery === "queue"),
   )
 
-  const rows = createMemo(() => {
-    const replacement = mutation.isPending ? mutation.variables : undefined
+  const rows = createMemo(() => queuedPromptRows(queued(), state.sent, state.gone))
 
-    return queuedPromptRows(
-      queued(),
-      replacement?.type === "edit" && replacement.delivery === "queue" ? replacement : undefined,
-    )
+  createEffect(() => {
+    const listed = new Set(queued().map((item) => item.id))
+
+    if (state.gone.every((id) => listed.has(id))) return
+    setState("gone", (gone) => gone.filter((id) => listed.has(id)))
   })
 
   createEffect(() => {
@@ -136,19 +172,52 @@ export function createSessionQueue(input: {
     if (!editing || mutation.isPending || queued().some((item) => item.id === editing.id)) return
     setState("editing", undefined)
   })
+
+  // A failed edit returns to the composer: on its original while that is still queued, otherwise
+  // appended to whatever the composer holds now, so nothing typed is lost.
+  const restoreEdit = (original: string, prompt: Prompt) => {
+    if (state.editing) {
+      setState("editing", "stash", "prompt", (stash) => mergePrompt(stash, prompt))
+
+      return
+    }
+
+    if (queued().some((item) => item.id === original) && input.draft.mode.current() === "normal") {
+      const draft = input.draft.current()
+      setState("editing", {
+        id: original,
+        stash: {
+          prompt: clonePrompt(draft),
+          cursor: input.draft.cursor() ?? promptLength(draft),
+          mode: "normal",
+          retry: input.draft.retry.current(),
+        },
+      })
+      input.draft.set(prompt, promptLength(prompt))
+      input.restoreFocus(promptLength(prompt))
+
+      return
+    }
+
+    const merged = mergePrompt(input.draft.current(), prompt)
+    input.draft.set(merged, promptLength(merged))
+    input.restoreFocus(promptLength(merged))
+  }
+
   onCleanup(() => cancelEdit())
 
   // `replace` substitutes an edited prompt for the original at its position in the same rewrite.
+  // Without `inboxIDs` the server's current order is kept.
   const rewrite = async (
-    inboxIDs: string[],
-    replace?: { original: string; admission: Parameters<typeof data.session.prompt>[0] },
+    inboxIDs: string[] | undefined,
+    replace?: { original: string; admission: Parameters<typeof data.session.prompt>[0]; moved: Record<string, string> },
   ) => {
     const pending = await server.api.session.inbox.list({ sessionID: input.sessionID })
 
     if (pending.some((item) => item.delivery === "queue" && item.type !== "user"))
       throw new Error("Queued control items block reordering")
     const current = pending.filter((item): item is QueuedPrompt => item.type === "user" && item.delivery === "queue")
-    const ordered = inboxIDs.flatMap((id) => current.filter((item) => item.id === id))
+    const ordered = inboxIDs ? inboxIDs.flatMap((id) => current.filter((item) => item.id === id)) : current
 
     // An edited prompt delivered meanwhile is no longer queued; fail so the edit draft stays.
     if (ordered.length !== current.length || (replace && !current.some((item) => item.id === replace.original)))
@@ -167,7 +236,7 @@ export function createSessionQueue(input: {
         item.id === replace?.original
           ? replace.admission
           : {
-              id: SessionMessage.ID.create(),
+              id: replace?.moved[item.id] ?? SessionMessage.ID.create(),
               sessionID: input.sessionID,
               text: item.payload.text,
               files: item.payload.files?.map((file) => ({
@@ -196,7 +265,13 @@ export function createSessionQueue(input: {
       })
     }
 
-    for (const item of current.slice(changed)) {
+    if (replace) setState("sent", (edit) => edit.original === replace.original, "admitted", true)
+
+    // An edit cancels last first: the strip shows each original until it goes, so its copies never
+    // show out of order.
+    const replaced = current.slice(changed)
+
+    for (const item of replace ? replaced.reverse() : replaced) {
       await server.api.session.inbox.cancel({ sessionID: input.sessionID, inboxID: item.id })
     }
   }
@@ -206,7 +281,10 @@ export function createSessionQueue(input: {
     const background = input.background()
 
     return server.api.session.inbox.update({ sessionID: input.sessionID, inboxID: id, delivery: "steer" }).then(
-      () => void background?.move(),
+      () => {
+        void background?.move()
+        hide([id])
+      },
       () => {
         background?.release()
         notify()
@@ -217,11 +295,14 @@ export function createSessionQueue(input: {
   const remove = (id: string) => {
     if (state.editing?.id === id) cancelEdit()
 
-    return server.api.session.inbox.cancel({ sessionID: input.sessionID, inboxID: id }).catch(() => notify())
+    return server.api.session.inbox.cancel({ sessionID: input.sessionID, inboxID: id }).then(
+      () => hide([id]),
+      () => notify(),
+    )
   }
 
   const undo = (id: string) => {
-    if (mutation.isPending || state.editing) return
+    if (mutation.isPending || state.editing || sending(id)) return
     const item = queued().find((entry) => entry.id === id)
 
     if (!item) return
@@ -261,8 +342,12 @@ export function createSessionQueue(input: {
     return mutation.mutateAsync({ type: "reorder", inboxIDs }).catch(() => undefined)
   }
 
+  const sending = (id: string) => state.sent.some((edit) => id in edit.moved || Object.values(edit.moved).includes(id))
+
+  // Other rows stay editable while a change is in flight; the row it is changing ignores clicks
+  // and shows as pending until the server catches up.
   const edit = (id: string) => {
-    if (mutation.isPending || refuseReverted()) return false
+    if (sending(id) || refuseReverted()) return false
 
     if (state.editing?.id === id) return true
     const item = queued().find((entry) => entry.id === id)
@@ -308,7 +393,7 @@ export function createSessionQueue(input: {
   const confirmEdit = (delivery: ComposerDelivery) => {
     const editing = state.editing
 
-    if (!editing || mutation.isPending || refuseReverted()) return
+    if (!editing || refuseReverted()) return
     const prompt = clonePrompt(input.draft.current())
     const text = prompt.map((part) => ("content" in part ? part.content : "")).join("")
     const attachments = prompt.filter(isAttachment)
@@ -324,20 +409,25 @@ export function createSessionQueue(input: {
       attachments.every((attachment, index) => attachment.id === original[index].id)
 
     if (pristine && delivery === "queue") return cancelEdit()
-    mutation.mutate({
-      type: "edit",
-      inboxIDs: queued().map((entry) => entry.id),
-      original: editing.id,
-      replacement: SessionMessage.ID.create(),
-      item,
-      prompt,
-      text,
-      delivery,
-    })
+    // A queued edit re-admits the prompts after it, so they are pending too; their IDs are minted now.
+    const after = delivery === "queue" ? queued().slice(queued().findIndex((entry) => entry.id === editing.id) + 1) : []
+
+    const moved = Object.fromEntries(
+      [editing.id, ...after.map((entry) => entry.id)].map((id) => [id, SessionMessage.ID.create()]),
+    )
+
+    // Optimistic: the composer returns to the draft it held before the edit and the strip shows
+    // the edited prompt as pending. A failure restores the edit; see restoreEdit.
+    setState("sent", (sent) => [
+      ...sent,
+      { original: editing.id, delivery, text: text.trim(), attachments: attachments.length, moved, admitted: false },
+    ])
+    cancelEdit()
+    mutation.mutate({ type: "edit", original: editing.id, moved, item, prompt, text, delivery })
   }
 
   const editFirst = () => {
-    const first = queued()[0]
+    const first = rows()[0]
 
     if (!first) return false
 
@@ -345,7 +435,7 @@ export function createSessionQueue(input: {
   }
 
   return {
-    count: () => queued().length,
+    count: () => rows().length,
     delivery: () => (input.working() ? input.behavior() : "steer"),
     alternate: () => {
       if (state.editing) return "steer"
@@ -378,22 +468,43 @@ export type SessionQueueView = Pick<
   "rows" | "editing" | "working" | "busy" | "steer" | "remove" | "undo" | "edit" | "reorder"
 >
 
-export function queuedPromptRows(items: QueuedPrompt[], replacement?: { original: string; replacement: string }) {
-  const replaced = replacement && items.some((item) => item.id === replacement.replacement)
+// An edit in flight shows its edited text on the original row, and every row it rewrites shows as
+// pending. A re-admitted copy stays hidden while the row it replaces is listed, so the strip keeps
+// its order; a steered edit leaves the strip once the server admits it. Rows the server confirmed
+// gone stay hidden while its events catch up.
+export function queuedPromptRows(items: QueuedPrompt[], sent: SentEdit[] = [], gone: string[] = []) {
+  const queued = items.filter((item) => !gone.includes(item.id))
+  const listed = new Set(queued.map((item) => item.id))
 
-  return items.flatMap((item) =>
-    replaced && item.id === replacement.original
-      ? []
-      : [
-          {
-            id: item.id,
-            text: queuedPromptText(item),
-            attachments:
-              (item.payload.files?.length ?? 0) +
-              (readPromptPresentation(item.payload.metadata)?.attachments.length ?? 0),
-          },
-        ],
-  )
+  return queued.flatMap((item): { id: string; text: string; attachments: number; pending?: boolean }[] => {
+    const rewrite = sent.find((edit) => item.id in edit.moved || Object.values(edit.moved).includes(item.id))
+    const edit = sent.find((entry) => entry.original === item.id || entry.moved[entry.original] === item.id)
+
+    if (rewrite && Object.entries(rewrite.moved).some(([old, next]) => next === item.id && listed.has(old))) return []
+
+    if (edit?.admitted && edit.delivery === "steer") return []
+
+    return [
+      {
+        id: item.id,
+        text: edit ? edit.text : queuedPromptText(item),
+        attachments: edit
+          ? edit.attachments
+          : (item.payload.files?.length ?? 0) +
+            (readPromptPresentation(item.payload.metadata)?.attachments.length ?? 0),
+        pending: rewrite ? true : undefined,
+      },
+    ]
+  })
+}
+
+// A prompt of only comments or attachments adds no text, so it needs no paragraph break.
+function mergePrompt(draft: Prompt, prompt: Prompt) {
+  if (!promptLength(draft)) return [...prompt, ...draft.filter(isAttachment)]
+
+  if (promptLength(prompt)) return appendPrompt(draft, prompt)
+
+  return [...clonePrompt(draft), ...prompt.filter(isAttachment)]
 }
 
 const decodeDisplayText = Schema.decodeUnknownOption(Schema.Struct({ displayText: Schema.NonEmptyString }))

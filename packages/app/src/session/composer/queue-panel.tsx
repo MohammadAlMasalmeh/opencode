@@ -8,6 +8,7 @@ import { arrayMove } from "@dnd-kit/helpers"
 import { Button } from "@opencode/ui/button"
 import { Icon } from "@opencode/ui/icon"
 import { IconButton } from "@opencode/ui/icon-button"
+import { Spinner } from "@opencode/ui/spinner"
 import { Tooltip } from "@opencode/ui/tooltip"
 import { useLanguage } from "@/runtime/i18n/language"
 import type { SessionQueueView } from "./queue"
@@ -114,6 +115,7 @@ function SessionQueueRow(props: { queue: SessionQueueView; id: string; index: nu
         <div
           ref={sortable.ref}
           data-component="session-queue-row"
+          aria-busy={entry.pending}
           class="group/queue-row flex h-8 shrink-0 items-center justify-between gap-2 rounded-md py-1 ps-0.5 pe-2"
           classList={{
             "bg-v2-overlay-simple-overlay-hover": editing(),
@@ -136,11 +138,13 @@ function SessionQueueRow(props: { queue: SessionQueueView; id: string; index: nu
                 type="button"
                 data-action="session-queue-edit"
                 dir="auto"
-                disabled={props.queue.busy()}
+                aria-disabled={entry.pending}
                 class="max-w-full min-w-0 self-start truncate rounded-sm text-start text-[13px] font-[440] leading-[var(--line-height-compact)]"
                 classList={{
-                  "text-v2-text-text-faint": editing(),
-                  "cursor-text text-v2-text-text-base hover:bg-v2-overlay-simple-overlay-hover": !editing(),
+                  "text-v2-text-text-faint": editing() || entry.pending,
+                  "cursor-progress": entry.pending,
+                  "cursor-text text-v2-text-text-base hover:bg-v2-overlay-simple-overlay-hover":
+                    !editing() && !entry.pending,
                 }}
                 onClick={() => props.queue.edit(props.id)}
               >
@@ -159,11 +163,14 @@ function SessionQueueRow(props: { queue: SessionQueueView; id: string; index: nu
             class="flex shrink-0 items-center gap-1.5"
             classList={{
               "opacity-0 focus-within:opacity-100 group-hover/queue-row:opacity-100 [@media(hover:none)]:opacity-100":
-                !active() && !editing(),
+                !active() && !editing() && !entry.pending,
               "pointer-events-none": props.queue.busy(),
             }}
           >
-            <Show when={!editing()}>
+            <Show when={entry.pending}>
+              <Spinner class="size-3.5 text-v2-text-text-faint" />
+            </Show>
+            <Show when={!editing() && !entry.pending}>
               <Tooltip
                 placement="top"
                 inactive={!props.queue.working()}
@@ -195,18 +202,20 @@ function SessionQueueRow(props: { queue: SessionQueueView; id: string; index: nu
                 />
               </Tooltip>
             </Show>
-            <Tooltip placement="top" value={language.t("session.queue.remove")}>
-              <IconButton
-                data-action="session-queue-remove"
-                type="button"
-                size="small"
-                variant="ghost-muted"
-                icon={<Icon name="outline-xmark" />}
-                disabled={props.queue.busy()}
-                aria-label={language.t("session.queue.remove")}
-                onClick={() => void props.queue.remove(props.id)}
-              />
-            </Tooltip>
+            <Show when={!entry.pending}>
+              <Tooltip placement="top" value={language.t("session.queue.remove")}>
+                <IconButton
+                  data-action="session-queue-remove"
+                  type="button"
+                  size="small"
+                  variant="ghost-muted"
+                  icon={<Icon name="outline-xmark" />}
+                  disabled={props.queue.busy()}
+                  aria-label={language.t("session.queue.remove")}
+                  onClick={() => void props.queue.remove(props.id)}
+                />
+              </Tooltip>
+            </Show>
           </div>
         </div>
       )}
