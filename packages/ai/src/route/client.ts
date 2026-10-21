@@ -647,13 +647,6 @@ export function compact(request: LLMRequest, options?: EndpointCompactOptions | 
   })
 }
 
-export const streamRequest = (request: LLMRequest, options?: StreamOptions) =>
-  Stream.unwrap(
-    Effect.gen(function* () {
-      return (yield* Service).stream(request, options)
-    }),
-  )
-
 export const layer: Layer.Layer<Service, never, RequestExecutor.Service> = Layer.effect(
   Service,
   Effect.gen(function* () {
