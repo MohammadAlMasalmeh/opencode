@@ -349,6 +349,8 @@ test.describe("timeline history", () => {
       const timeline = await setupTimeline(page, {
         sessionMessages: messages,
         sessionStatus: { [sessionID]: { type: "busy" } },
+        // The turn rail reads the transcript through its own index, which would land in the exact page log below.
+        settings: { showTurnNavigator: false },
         viewport: { width: 646, height: 1385 },
         beforeMessagesResponse: (request) => (request.before ? history.promise : Promise.resolve()),
         onMessages: (request) => {

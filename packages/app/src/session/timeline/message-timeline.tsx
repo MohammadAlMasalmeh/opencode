@@ -476,6 +476,7 @@ function MessageTimelineView(
               sessionID={id}
               messages={turnMessages}
               complete={() => !data.session.message.more(id)}
+              historyLoading={() => data.session.message.loading(id)}
               assistantMessagesByParent={projection.assistantMessagesByParent}
               revertMessageID={() => props.session.data.info()?.revert?.messageID}
               visibleUserMessageIDs={virtualized.visibleUserMessageIDs}

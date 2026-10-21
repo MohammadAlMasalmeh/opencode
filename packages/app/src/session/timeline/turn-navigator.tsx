@@ -1,6 +1,6 @@
 import type { SessionMessageAssistant, SessionMessageInfo, SessionMessageUser } from "@opencode/client/promise"
 import { frameLoop, prefersReducedMotion, Spring } from "@opencode/ui/motion"
-import { createEffect, createMemo, createSelector, For, onCleanup, onMount, Show, type Accessor } from "solid-js"
+import { createEffect, createMemo, createSelector, For, onCleanup, Show, type Accessor } from "solid-js"
 import { createStore } from "solid-js/store"
 import { readPromptPresentation } from "@/composer/comment-note"
 import { useServerSDK } from "@/runtime/server/client"
@@ -11,8 +11,11 @@ const turnPageLimit = 200
 // Previews fade out after a few lines; keep only enough text to fill them.
 const previewLength = 400
 
-// Keep index loading clear of session entry and tab switch rendering.
+// Keep index loading clear of session entry, tab switch rendering and the timeline's own history requests.
 const railDelay = 1000
+
+// The rail lists at most this many of the newest turns.
+const indexLimit = 1000
 
 // Resting on an unloaded turn fetches its reply; sweeping across the rail fetches nothing.
 const replyHoverDelay = 150
@@ -39,6 +42,8 @@ type TurnNavigatorProps = {
   messages: Accessor<SessionMessageInfo[]>
   /** Whether the loaded messages reach the start of the session, making the index redundant. */
   complete: Accessor<boolean>
+  /** Whether the timeline is loading its own history; the index waits until it has been idle for a while. */
+  historyLoading: Accessor<boolean>
   assistantMessagesByParent: Accessor<Map<string, SessionMessageAssistant[]>>
   revertMessageID: Accessor<string | undefined>
   visibleUserMessageIDs: Accessor<ReadonlySet<string>>
@@ -56,24 +61,28 @@ export function TurnNavigator(props: TurnNavigatorProps) {
   const [state, setState] = createStore<{ engaged: boolean; index?: Map<string, string> }>({ engaged: false })
   let root: HTMLDivElement | undefined
 
-  const loadIndex = async (cursor?: string): Promise<[string, string][]> => {
-    const page = await sdk.api.message.list({
-      sessionID: props.sessionID,
-      type: "user",
-      limit: turnPageLimit,
-      ...(cursor ? { cursor } : { order: "asc" as const }),
-    })
+  const abort = new AbortController()
+  onCleanup(() => abort.abort())
+
+  // Newest first, so a capped index still meets the loaded tail.
+  const loadIndex = async (cursor?: string, count = 0): Promise<[string, string][]> => {
+    const page = await sdk.api.message.list(
+      { sessionID: props.sessionID, type: "user", limit: turnPageLimit, cursor },
+      { signal: abort.signal },
+    )
 
     const turns = page.data.flatMap((message): [string, string][] =>
       message.type === "user" ? [[message.id, promptPreview(message)]] : [],
     )
 
-    if (page.data.length < turnPageLimit || !page.cursor.next) return turns
+    if (page.data.length < turnPageLimit || !page.cursor.next || count + turns.length >= indexLimit) return turns
 
-    return [...turns, ...(await loadIndex(page.cursor.next))]
+    return [...turns, ...(await loadIndex(page.cursor.next, count + turns.length))]
   }
 
-  onMount(() => {
+  createEffect(() => {
+    if (state.engaged || props.historyLoading()) return
+
     const timer = setTimeout(() => {
       // Touch-only devices never load the rail.
       if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return
@@ -84,7 +93,7 @@ export function TurnNavigator(props: TurnNavigatorProps) {
       // On failure the rail lists the loaded turns.
       void loadIndex()
         .catch(() => [])
-        .then((turns) => setState("index", new Map(turns)))
+        .then((turns) => setState("index", new Map(turns.toReversed())))
     }, railDelay)
 
     onCleanup(() => clearTimeout(timer))
@@ -125,7 +134,13 @@ function TurnRail(props: TurnNavigatorProps & { index?: Map<string, string>; roo
   const turns = createMemo(() => {
     const revert = props.revertMessageID()
 
-    return [...new Set([...(props.index?.keys() ?? []), ...loaded().keys()])].filter((id) => !revert || id < revert)
+    const tail = [...loaded().keys()]
+    // Turns paged in from beyond a capped index are older than all of it.
+    const join = tail.findIndex((id) => props.index?.has(id))
+
+    return [...new Set([...tail.slice(0, Math.max(0, join)), ...(props.index?.keys() ?? []), ...tail])].filter(
+      (id) => !revert || id < revert,
+    )
   })
 
   // The turn's latest reply is the newest assistant text between its prompt and the next turn.
