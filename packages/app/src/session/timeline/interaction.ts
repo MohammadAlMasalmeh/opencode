@@ -3,7 +3,7 @@ import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { useLocation } from "@solidjs/router"
 import { createEffect, on, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
-import { frameLoop } from "@opencode/ui/motion"
+import { frameLoop, prefersReducedMotion } from "@opencode/ui/motion"
 import { useLayout } from "@/shell/state/layout"
 import { useData } from "@/runtime/server/current"
 import type { SessionModel } from "../model"
@@ -224,8 +224,12 @@ export function createSessionTimelineInteraction(session: SessionModel) {
     const message = loaded()
 
     if (!message || !owner.current()) return
+    const behavior = prefersReducedMotion() ? "auto" : "smooth"
+
+    // The latest turn is the bottom of the timeline, reached the way the jump-to-latest button reaches it.
+    if (message.id === visibleUserMessages().at(-1)?.id) return resume(behavior)
     unpin()
-    scrollToMessage(message, "auto")
+    scrollToMessage(message, behavior)
   }
 
   // A gesture inside a nested scrollable region scrolls that region, not the timeline.

@@ -217,6 +217,52 @@ test.describe("timeline history", () => {
     expect(loads.length).toBeGreaterThan(1)
   })
 
+  test("keeps the turn rail in timeline order, with one preview of each turn's own reply", async ({ page }) => {
+    // Other clients mint IDs that do not sort by time, like the iOS app's uppercase UUIDs.
+    const turnID = (index: number) =>
+      [5, 30].includes(index) ? `msg_F${index}_ios_user` : `msg_0${String(index).padStart(4, "0")}_turn_a_user`
+
+    const messages = Array.from({ length: 40 }, (_, index) => [
+      userMessage([userText(`Prompt number ${index}`, { id: `prt_${index}_prompt` })], {
+        id: turnID(index),
+        created: 1690000000000 + index * 10_000,
+      }),
+      assistantMessage([{ id: `prt_${index}_reply`, type: "text", text: `Response number ${index}` }], {
+        id: `msg_0${String(index).padStart(4, "0")}_turn_b_assistant`,
+        parentID: turnID(index),
+        created: 1690000001000 + index * 10_000,
+      }),
+    ]).flat()
+
+    await setupTimeline(page, { sessionMessages: messages, pageMessages: pageMessagesFrom({ [sessionID]: messages }) })
+    const navigator = page.locator('[data-component="session-turn-navigator"]')
+    const turns = navigator.locator("[data-turn]")
+    const preview = navigator.locator('[data-slot="session-turn-navigator-preview"]')
+    await expect(turns).toHaveCount(40)
+
+    // An unloaded turn previews its prompt, then its own reply, once each.
+    await turns.nth(5).hover()
+    await expect(preview.locator("p")).toHaveText(["Prompt number 5", "Response number 5"])
+    await turns.nth(5).click()
+    await expect(page.locator(`#message-${turnID(5)}`)).toBeInViewport()
+
+    // Scrolling closes the preview; moving on opens a single one for the turn under the pointer.
+    await turns.nth(20).hover()
+    await expect(preview).toBeVisible()
+    await page.mouse.wheel(0, -300)
+    await expect(preview).toBeHidden()
+    await turns.nth(30).hover()
+    await expect(preview.locator("p")).toHaveText(["Prompt number 30", "Response number 30"])
+    await expect(page.locator('[data-slot="session-turn-navigator-preview"]')).toHaveCount(1)
+
+    // The last tick is the latest turn.
+    await turns.nth(39).hover()
+    await expect(preview.locator("p")).toHaveText(["Prompt number 39", "Response number 39"])
+    await turns.nth(39).click()
+    await expect(page.locator(`#message-${turnID(39)}`)).toBeInViewport()
+    await expect(page.locator(`#message-${turnID(5)}`)).not.toBeInViewport()
+  })
+
   test("mounts every part once and in order while paging to the start", async ({ page }) => {
     test.setTimeout(240_000)
     const errors = trackPageErrors(page)

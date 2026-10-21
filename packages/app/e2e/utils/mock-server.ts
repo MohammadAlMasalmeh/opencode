@@ -1424,8 +1424,9 @@ function mockHandlers(
           const token = ctx.query.cursor
           const type = ctx.query.type
 
-          // Filter before pagination, matching the server's message index without paging the transcript.
-          if (type) {
+          // Filter before pagination, matching the server's message index without paging the transcript. A `before`
+          // anchor reads back from a message the same way.
+          if (type || ctx.query.before) {
             const [order, offset] = token?.startsWith("typed:")
               ? [token.split(":")[1], Number(token.split(":")[2])]
               : [ctx.query.order ?? "desc", 0]
@@ -1439,7 +1440,7 @@ function mockHandlers(
                 )
               : transcript.length
 
-            const typed = transcript.slice(0, end).filter((item) => item.type === type)
+            const typed = transcript.slice(0, end).filter((item) => !type || item.type === type)
             const ordered = order === "asc" ? typed : typed.toReversed()
             const limit = ctx.query.limit ?? 50
 
