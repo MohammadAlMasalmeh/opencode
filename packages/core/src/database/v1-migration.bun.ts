@@ -580,16 +580,19 @@ export function run(options: Options = {}): Effect.Effect<RunResult, never, Data
         updateProgress({ label: "Migrating sessions", numerator: migrated + completed, denominator })
       })
       updateProgress({ label: "Migrating sessions", numerator: migrated + sourceTotal, denominator })
-      const projects = new Set(
-        (yield* db.all<{ id: string }>(sql`SELECT id FROM project`)).map((project) => project.id),
+      const projects = new Map(
+        (yield* db.all<{ id: string; worktree: string }>(sql`SELECT id, worktree FROM project`)).map((project) => [
+          project.id,
+          project.worktree,
+        ]),
       )
       while (true) {
         const state = yield* readState(db)
         const cursorValue = state?.phase === "sessions" ? state.cursor : undefined
-        const nextID = yield* db.get<{ id: string; project_id: string }>(
+        const nextID = yield* db.get<{ id: string; project_id: string; directory: string }>(
           cursorValue === undefined
-            ? sql`SELECT id, project_id FROM session ORDER BY id DESC LIMIT 1`
-            : sql`SELECT id, project_id FROM session WHERE id < ${cursorValue} ORDER BY id DESC LIMIT 1`,
+            ? sql`SELECT id, project_id, directory FROM session ORDER BY id DESC LIMIT 1`
+            : sql`SELECT id, project_id, directory FROM session WHERE id < ${cursorValue} ORDER BY id DESC LIMIT 1`,
         )
         if (!nextID) break
         yield* db
@@ -609,6 +612,21 @@ export function run(options: Options = {}): Effect.Effect<RunResult, never, Data
                   sessionID: nextID.id,
                   projectID: nextID.project_id,
                 })
+              // Legacy ACP sessions can store a relative cwd. Anchor it to persisted project data,
+              // never the migration process's cwd, and leave the original V1 row intact.
+              const worktree = projects.get(projectID) ?? path.parse(global.data).root
+              const directory =
+                nextID.directory && !path.posix.isAbsolute(nextID.directory) && !path.win32.isAbsolute(nextID.directory)
+                  ? /^[A-Za-z]:[\\/]/.test(worktree) || worktree.startsWith("//")
+                    ? path.win32.resolve(worktree, nextID.directory).replaceAll("\\", "/")
+                    : path.posix.resolve(worktree, nextID.directory)
+                  : nextID.directory
+              if (directory !== nextID.directory)
+                yield* Effect.logWarning("Resolved relative V1 session directory", {
+                  sessionID: nextID.id,
+                  directory: nextID.directory,
+                  resolved: directory,
+                })
               yield* tx.run(sql`
                   INSERT OR IGNORE INTO session_v2 (
                     id, project_id, workspace_id, parent_id, slug, directory, path, title, version, share_url,
@@ -617,7 +635,7 @@ export function run(options: Options = {}): Effect.Effect<RunResult, never, Data
                     revert, permission, agent, model, time_created, time_updated, time_compacting, time_archived
                   )
                   SELECT
-                    id, ${projectID}, workspace_id, parent_id, slug, directory, path, title, version, share_url,
+                    id, ${projectID}, workspace_id, parent_id, slug, ${directory}, path, title, version, share_url,
                     summary_additions, summary_deletions, summary_files, summary_diffs, metadata, cost,
                     tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write,
                     revert, NULL, agent, model, time_created, time_updated, time_compacting, time_archived

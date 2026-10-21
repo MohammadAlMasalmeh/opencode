@@ -1120,13 +1120,118 @@ describe("V1Migration database workflow", () => {
     )
   })
 
-  test("reassigns V1 sessions whose projects are missing to the global project", async () => {
+  test.each([false, true])(
+    "migrates relative directories and preserves history after a saved cursor: %s",
+    async (resumed) => {
+      await database(
+        Effect.gen(function* () {
+          const database = yield* Database.Service
+          const db = database.db
+          yield* db.run(
+            sql`INSERT INTO project (id, worktree, time_created, time_updated, sandboxes) VALUES ('global', '/tmp/project', 1, 2, '[]')`,
+          )
+          yield* Effect.forEach(
+            [
+              { id: "ses_z", directory: "/tmp/newer" },
+              { id: "ses_test", directory: "." },
+              { id: "ses_a", directory: "/tmp/older" },
+            ],
+            (session) =>
+              db.run(sql`
+            INSERT INTO session (id, project_id, slug, directory, title, version, time_created, time_updated)
+            VALUES (${session.id}, 'global', ${session.id}, ${session.directory}, 'Test', '1', 1, 2)
+          `),
+          )
+          const message = user("msg_000000000050aaaaaaaaaaaaaa")
+          const text = part("prt_relative", message.id, { type: "text", text: "Keep my history" })
+          yield* db.run(sql`
+          INSERT INTO message (id, session_id, time_created, time_updated, data)
+          VALUES (${message.id}, 'ses_test', 10, 11, ${message.data})
+        `)
+          yield* db.run(sql`
+          INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+          VALUES (${text.id}, ${message.id}, 'ses_test', 1, 2, ${text.data})
+        `)
+          if (resumed) {
+            yield* db.run(sql`
+            INSERT INTO session_v2 (id, project_id, slug, directory, title, version, time_created, time_updated)
+            SELECT id, project_id, slug, directory, title, version, time_created, time_updated FROM session WHERE id = 'ses_z'
+          `)
+            yield* db.run(sql`
+            INSERT INTO kv (key, value, time_created, time_updated)
+            VALUES ('migration.v1-v2', '{"phase":"sessions","cursor":"ses_z"}', 1, 1)
+          `)
+          }
+
+          expect(yield* V1Migration.run()).toEqual({ status: "completed" })
+          expect(yield* db.all(sql`SELECT id, directory FROM session_v2 ORDER BY id`)).toEqual([
+            { id: "ses_a", directory: "/tmp/older" },
+            { id: "ses_test", directory: "/tmp/project" },
+            { id: "ses_z", directory: "/tmp/newer" },
+          ])
+          expect(yield* db.get(sql`SELECT data FROM session_message WHERE id = ${message.id}`)).toEqual({
+            data: '{"text":"Keep my history","time":{"created":10}}',
+          })
+          expect(yield* db.get(sql`SELECT directory FROM session WHERE id = 'ses_test'`)).toEqual({ directory: "." })
+          expect(yield* db.get(sql`SELECT data FROM message WHERE id = ${message.id}`)).toEqual({ data: message.data })
+          expect(yield* db.get(sql`SELECT data FROM part WHERE id = ${text.id}`)).toEqual({ data: text.data })
+          expect(yield* db.get(sql`SELECT value FROM kv WHERE key = 'migration.v1-v2'`)).toEqual({
+            value: '{"phase":"completed"}',
+          })
+          expect(yield* V1Migration.run()).toEqual({ status: "completed" })
+          expect(yield* db.all(sql`SELECT id FROM session_message`)).toEqual([{ id: message.id }])
+        }),
+      )
+    },
+  )
+
+  test.each([
+    { worktree: "/repo", directory: "src/client", expected: "/repo/src/client" },
+    { worktree: "/repo/project", directory: "../sibling", expected: "/repo/sibling" },
+    { worktree: "C:/Users/Example/repo", directory: ".", expected: "C:/Users/Example/repo" },
+    { worktree: "C:/Users/Example/repo", directory: "src\\client", expected: "C:/Users/Example/repo/src/client" },
+    { worktree: "//server/share/repo", directory: "src", expected: "//server/share/repo/src" },
+    { worktree: "/repo", directory: "C:/Users/Example/other", expected: "C:/Users/Example/other" },
+    { worktree: "/repo", directory: "", expected: "" },
+  ])("uses the saved project path flavor when migrating $directory from $worktree", async (input) => {
+    await database(
+      Effect.gen(function* () {
+        const database = yield* Database.Service
+        const db = database.db
+        yield* db.run(sql`
+          INSERT INTO project (id, worktree, time_created, time_updated, sandboxes)
+          VALUES ('saved-project', ${input.worktree}, 1, 2, '[]')
+        `)
+        yield* db.run(sql`
+          INSERT INTO session (id, project_id, slug, directory, title, version, time_created, time_updated)
+          VALUES ('ses_test', 'saved-project', 'test', ${input.directory}, 'Test', '1', 1, 2)
+        `)
+
+        expect(yield* V1Migration.run()).toEqual({ status: "completed" })
+        expect(yield* db.get(sql`SELECT directory FROM session_v2 WHERE id = 'ses_test'`)).toEqual({
+          directory: input.expected,
+        })
+        expect(yield* db.get(sql`SELECT directory FROM session WHERE id = 'ses_test'`)).toEqual({
+          directory: input.directory,
+        })
+        expect(
+          (yield* db
+            .select()
+            .from(SessionTable)
+            .where(eq(SessionTable.id, SessionSchema.ID.make("ses_test")))
+            .get())?.id,
+        ).toBe(SessionSchema.ID.make("ses_test"))
+      }),
+    )
+  })
+
+  test.each(["/tmp/orphan", "."])("reassigns V1 sessions with missing projects and directory %s", async (directory) => {
     await database(
       Effect.gen(function* () {
         const { db } = yield* Database.Service
         const global = yield* Global.Service
         yield* db.run(
-          sql`INSERT INTO session (id, project_id, slug, directory, title, version, time_created, time_updated) VALUES ('ses_orphan', 'missing-project', 'orphan', '/tmp/orphan', 'Orphan', '1', 1, 2)`,
+          sql`INSERT INTO session (id, project_id, slug, directory, title, version, time_created, time_updated) VALUES ('ses_orphan', 'missing-project', 'orphan', ${directory}, 'Orphan', '1', 1, 2)`,
         )
 
         expect(yield* V1Migration.run()).toEqual({ status: "completed" })
@@ -1135,6 +1240,9 @@ describe("V1Migration database workflow", () => {
         })
         expect(yield* db.get(sql`SELECT worktree FROM project WHERE id = 'global'`)).toEqual({
           worktree: path.parse(global.data).root,
+        })
+        expect(yield* db.get(sql`SELECT directory FROM session_v2 WHERE id = 'ses_orphan'`)).toEqual({
+          directory: directory === "." ? path.parse(global.data).root.replaceAll("\\", "/") : directory,
         })
         expect(yield* db.get(sql`SELECT value FROM kv WHERE key = 'migration.v1-v2'`)).toEqual({
           value: '{"phase":"completed"}',
