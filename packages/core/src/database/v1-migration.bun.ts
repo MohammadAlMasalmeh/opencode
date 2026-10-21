@@ -2,6 +2,7 @@ export * as V1Migration from "./v1-migration.js"
 
 import { Cause, Effect, Layer, Option, Schema, Semaphore } from "effect"
 import { Database } from "./database.js"
+import { isWindowsStoragePath } from "./path.js"
 import { SessionMessageTable, SessionTable } from "../session/sql.js"
 import { SessionV1 } from "@opencode/schema/session-v1"
 import { SessionMessage } from "../session/message.js"
@@ -612,12 +613,12 @@ export function run(options: Options = {}): Effect.Effect<RunResult, never, Data
                   sessionID: nextID.id,
                   projectID: nextID.project_id,
                 })
-              // Legacy ACP sessions can store a relative cwd. Anchor it to persisted project data,
-              // never the migration process's cwd, and leave the original V1 row intact.
-              const directory = migrateDirectory(
-                nextID.directory,
-                projects.get(projectID) ?? path.parse(global.data).root,
-              )
+              // Legacy ACP sessions can store a cwd relative to an unknown process directory.
+              // Use the project worktree instead, and leave the original V1 row intact.
+              const directory =
+                !nextID.directory || path.posix.isAbsolute(nextID.directory) || isWindowsStoragePath(nextID.directory)
+                  ? nextID.directory
+                  : (projects.get(projectID) ?? path.parse(global.data).root).replaceAll("\\", "/")
               if (directory !== nextID.directory)
                 yield* Effect.logWarning("Normalized V1 session directory", {
                   sessionID: nextID.id,
@@ -714,18 +715,6 @@ export function run(options: Options = {}): Effect.Effect<RunResult, never, Data
       return { status: "completed" as const }
     }).pipe(Effect.orDie),
   )
-}
-
-function migrateDirectory(directory: string, worktree: string) {
-  if (!directory || path.posix.isAbsolute(directory)) return directory
-  if (/^[A-Za-z]:[\\/]/.test(directory) || directory.startsWith("\\\\")) return directory.replaceAll("\\", "/")
-  if (!/^[A-Za-z]:[\\/]/.test(worktree) && !worktree.startsWith("//") && !worktree.startsWith("\\\\"))
-    return path.posix.resolve(worktree, directory)
-
-  // A different drive has no persisted cwd. Use its root rather than Node's process-local drive cwd.
-  const drive = /^[A-Za-z]:/.exec(directory)?.[0]
-  const base = drive && !worktree.toLowerCase().startsWith(drive.toLowerCase()) ? `${drive}/` : worktree
-  return path.win32.resolve(base, directory).replaceAll("\\", "/")
 }
 
 function nextPath(options: Options, data: string) {

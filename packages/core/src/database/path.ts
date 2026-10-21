@@ -8,7 +8,7 @@ function storagePath(input: string) {
   return input.replaceAll("\\", "/")
 }
 
-function isWindowsStoragePath(input: string) {
+export function isWindowsStoragePath(input: string) {
   return /^[A-Za-z]:\//.test(input) || input.startsWith("//")
 }
 

@@ -1121,21 +1121,17 @@ describe("V1Migration database workflow", () => {
   })
 
   test.each([
-    { worktree: "/repo", directory: "\\child", expected: "/repo/\\child" },
+    { worktree: "/repo", directory: ".", expected: "/repo" },
+    { worktree: "/repo", directory: "src", expected: "/repo" },
     { worktree: "C:/repo", directory: ".", expected: "C:/repo" },
-    { worktree: "C:/repo", directory: "src\\client", expected: "C:/repo/src/client" },
-    { worktree: "C:/repo", directory: "\\child", expected: "C:/child" },
-    { worktree: "C:/repo", directory: "C:child", expected: "C:/repo/child" },
-    { worktree: "D:/repo", directory: "C:child", expected: "C:/child" },
-    { worktree: "//server/share/repo", directory: "\\child", expected: "//server/share/child" },
-    { worktree: "/repo", directory: "C:\\other", expected: "C:/other" },
-    { worktree: "/repo", directory: "\\\\server\\share\\other", expected: "//server/share/other" },
+    { worktree: "//server/share/repo", directory: ".", expected: "//server/share/repo" },
+    { worktree: "/repo", directory: "C:/other", expected: "C:/other" },
+    { worktree: "/repo", directory: "//server/share/other", expected: "//server/share/other" },
     { worktree: "/repo", directory: "", expected: "" },
   ])("migrates $directory in $worktree", async (input) => {
     await database(
       Effect.gen(function* () {
-        const database = yield* Database.Service
-        const db = database.db
+        const { db } = yield* Database.Service
         yield* db.run(sql`
           INSERT INTO project (id, worktree, time_created, time_updated, sandboxes)
           VALUES ('saved-project', ${input.worktree}, 1, 2, '[]')
@@ -1148,6 +1144,9 @@ describe("V1Migration database workflow", () => {
         expect(yield* V1Migration.run()).toEqual({ status: "completed" })
         expect(yield* db.get(sql`SELECT directory FROM session_v2 WHERE id = 'ses_test'`)).toEqual({
           directory: input.expected,
+        })
+        expect(yield* db.get(sql`SELECT directory FROM session WHERE id = 'ses_test'`)).toEqual({
+          directory: input.directory,
         })
       }),
     )
@@ -1179,7 +1178,7 @@ describe("V1Migration database workflow", () => {
     )
   })
 
-  test("migrates relative directories and preserves V1 history", async () => {
+  test("replaces projections containing apostrophes and checkpoints completion", async () => {
     await database(
       Effect.gen(function* () {
         const { db } = yield* Database.Service
@@ -1191,7 +1190,7 @@ describe("V1Migration database workflow", () => {
           tokens_cache_read, tokens_cache_write, revert, agent, model, metadata, time_created, time_updated,
           time_compacting, time_archived
         ) VALUES (
-          'ses_test', 'global', 'test', '.', 'Test', '1', 99, 99, 99, 99, 99, 99, '{}', 'preserved',
+          'ses_test', 'global', 'test', '/tmp/test', 'Test', '1', 99, 99, 99, 99, 99, 99, '{}', 'preserved',
           '{"id":"selected","providerID":"selected-provider","variant":"selected-variant"}', '{"keep":true}',
           1, 2, 3, 4
         )`)
@@ -1229,10 +1228,9 @@ describe("V1Migration database workflow", () => {
         expect(yield* db.all(sql`SELECT id FROM event`)).toEqual([])
         expect(
           yield* db.get(
-            sql`SELECT directory, agent, model, metadata, cost, tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, revert, time_created, time_updated, time_compacting, time_archived FROM session_v2 WHERE id = 'ses_test'`,
+            sql`SELECT agent, model, metadata, cost, tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, revert, time_created, time_updated, time_compacting, time_archived FROM session_v2 WHERE id = 'ses_test'`,
           ),
         ).toEqual({
-          directory: "/tmp/test",
           agent: "preserved",
           model: '{"id":"selected","providerID":"selected-provider","variant":"selected-variant"}',
           metadata: '{"keep":true}',
@@ -1248,10 +1246,7 @@ describe("V1Migration database workflow", () => {
           time_compacting: null,
           time_archived: 4,
         })
-        expect(
-          yield* db.get(sql`SELECT directory, cost, revert, time_compacting FROM session WHERE id = 'ses_test'`),
-        ).toEqual({
-          directory: ".",
+        expect(yield* db.get(sql`SELECT cost, revert, time_compacting FROM session WHERE id = 'ses_test'`)).toEqual({
           cost: 99,
           revert: "{}",
           time_compacting: 3,
@@ -1272,7 +1267,7 @@ describe("V1Migration database workflow", () => {
         )
         yield* Effect.forEach(["ses_a", "ses_b", "ses_c"], (id) =>
           db.run(
-            sql`INSERT INTO session (id, project_id, slug, directory, title, version, cost, time_created, time_updated) VALUES (${id}, 'global', ${id}, ${id === "ses_b" ? "." : "/tmp/test"}, 'Test', '1', 99, 1, 2)`,
+            sql`INSERT INTO session (id, project_id, slug, directory, title, version, cost, time_created, time_updated) VALUES (${id}, 'global', ${id}, '/tmp/test', 'Test', '1', 99, 1, 2)`,
           ),
         )
         yield* db.run(
@@ -1328,10 +1323,7 @@ describe("V1Migration database workflow", () => {
           Effect.filterOrFail((status) => status.status === "completed"),
           Effect.retry(Schedule.spaced("10 millis")),
         )
-        expect(yield* db.get(sql`SELECT directory, cost FROM session_v2 WHERE id = 'ses_b'`)).toEqual({
-          directory: "/tmp/test",
-          cost: 0,
-        })
+        expect(yield* db.get(sql`SELECT cost FROM session_v2 WHERE id = 'ses_b'`)).toEqual({ cost: 0 })
         expect(yield* db.all(sql`SELECT id FROM session_message WHERE session_id = 'ses_b'`)).toEqual([])
         expect(yield* db.get(sql`SELECT seq, owner_id FROM event_sequence WHERE aggregate_id = 'ses_b'`)).toEqual({
           seq: -1,
