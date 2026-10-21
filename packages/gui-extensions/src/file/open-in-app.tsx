@@ -320,22 +320,39 @@ function OpenInAppMenuItemsV2(props: {
 export function OpenInAppContextMenuV2(
   props: ParentProps<{
     state?: OpenInAppState
-    path: () => string
+    resolvePath: (event: MouseEvent) => string | undefined
   }>,
 ) {
   const state = props.state
 
   if (!state) return props.children
   const [open, setOpen] = createSignal(false)
+  const [path, setPath] = createSignal("")
 
   return (
-    <Show when={state.canOpen() && props.path()} fallback={props.children}>
+    <Show when={state.canOpen()} fallback={props.children}>
       <Menu.Context modal={false} onOpenChange={setOpen}>
         <Menu.Context.Trigger
           as="div"
-          class="h-full w-full min-w-max"
+          class="h-full w-full min-w-max flex flex-col min-h-0 flex-1"
           data-slot="file-tree-v2-context-trigger"
           data-context-menu-open={open() ? "" : undefined}
+          on:contextmenu={{
+            capture: true,
+            handleEvent(event: MouseEvent) {
+              const next = props.resolvePath(event)
+
+              if (!next) {
+                setOpen(false)
+                event.preventDefault()
+                event.stopPropagation()
+
+                return
+              }
+
+              setPath(next)
+            },
+          }}
         >
           {props.children}
         </Menu.Context.Trigger>
@@ -343,7 +360,7 @@ export function OpenInAppContextMenuV2(
           <Menu.Context.Content class="open-in-app-v2-menu">
             <OpenInAppMenuItemsV2
               state={state}
-              path={props.path}
+              path={path}
               reveal
               selection={false}
               close={() => setOpen(false)}

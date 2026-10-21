@@ -88,12 +88,12 @@ test("review and terminal tabs follow the session tab and the terminal stays mou
   await expect(review).toBeVisible()
 
   const tree = page.locator('#review-panel [data-component="file-tree-v2"]')
-  await expect(tree.getByRole("button", { name: "generated-0000.ts" })).toBeVisible()
-  expect(await tree.locator('[data-slot="file-tree-v2-row"]').count()).toBeLessThanOrEqual(60)
-  const viewport = page.locator('#review-panel [data-slot="session-review-v2-sidebar-tree"] .scroll-view__viewport')
+  await expect(tree.getByRole("treeitem", { name: "generated-0000.ts" })).toBeVisible()
+  expect(await tree.locator('[data-type="item"]').count()).toBeLessThanOrEqual(60)
+  const viewport = tree.locator("[data-file-tree-virtualized-scroll]")
   await viewport.hover()
   await page.mouse.wheel(0, 100_000)
-  await expect(tree.getByRole("button", { name: "generated-2739.ts" })).toBeVisible()
+  await expect(tree.getByRole("treeitem", { name: "generated-2739.ts" })).toBeVisible()
 })
 
 test("review content stays aligned with the side region in both directions", async ({ page }) => {
@@ -137,8 +137,8 @@ function expectMarked(locator: Locator) {
 
 async function expectTreeSentinel(page: Page) {
   const tree = page.locator('#review-panel [data-component="file-tree-v2"]')
-  await expect(tree.getByRole("button", { name: "action.yml" })).toBeVisible()
-  const rows = await tree.locator('[data-slot="file-tree-v2-row"]').count()
+  await expect(tree.getByRole("treeitem", { name: "action.yml" })).toBeVisible()
+  const rows = await tree.locator('[data-type="item"]').count()
   expect(rows).toBeGreaterThan(0)
   expect(rows).toBeLessThanOrEqual(60)
 }

@@ -243,7 +243,7 @@ test("the summary's changes row switches the view and keeps the side tabs", asyn
   const readme = panel.getByRole("tab", { name: "README.md", exact: true })
   await page.getByRole("button", { name: "Toggle review", exact: true }).click()
   await openFileLauncher(panel)
-  await panel.getByRole("button", { name: "README.md", exact: true }).click()
+  await panel.getByRole("treeitem", { name: "README.md", exact: true }).click()
   await expect(readme).toHaveAttribute("aria-selected", "true")
   await expect(panel.getByRole("tab", { name: "Open file", exact: true })).toHaveCount(0)
 
@@ -280,7 +280,7 @@ test("the summary's changes row switches the view and keeps the side tabs", asyn
   await more.click()
   await views.getByRole("button", { name: "Files", exact: true }).click()
   const files = page.locator('[data-slot="session-mobile-files"]')
-  await files.getByRole("button", { name: "README.md", exact: true }).click()
+  await files.getByRole("treeitem", { name: "README.md", exact: true }).click()
   await expect(files.getByText("contents:README.md", { exact: true })).toBeVisible()
   await page.setViewportSize({ width: 1280, height: 900 })
   await expect(readme).toHaveAttribute("aria-selected", "true")

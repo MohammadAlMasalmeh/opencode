@@ -993,7 +993,7 @@ test("each session tab shows its own file tab after a switch to a session in ano
 
   const open = async (file: string) => {
     await openFileLauncher(panel)
-    await panel.getByRole("button", { name: file, exact: true }).click()
+    await panel.getByRole("treeitem", { name: file, exact: true }).click()
     await shows(file)
   }
 
@@ -1038,7 +1038,7 @@ test("tab shortcuts cycle side-panel tabs when the side panel is focused with mu
   const composer = page.getByRole("textbox", { name: "Prompt", exact: true })
 
   await openFileLauncher(panel)
-  await panel.getByRole("button", { name: "README.md", exact: true }).click()
+  await panel.getByRole("treeitem", { name: "README.md", exact: true }).click()
   await expect(fileTab).toHaveAttribute("aria-selected", "true")
   await expect(panel.getByText("contents:README.md", { exact: true })).toBeVisible()
 

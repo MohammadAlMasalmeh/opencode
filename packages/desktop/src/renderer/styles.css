@@ -10,6 +10,7 @@
   .settings-keybind-button,
   .settings-wsl-catalog-card,
   [data-component="file-tree-v2"] [data-slot="file-tree-v2-row"],
+  file-tree-container.opencode-pierre-file-tree,
   .toast-v2 [data-close-button],
   [data-slot="segmented-control-v2-item"],
   [data-slot="line-comment-v2-overflow"],

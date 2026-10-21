@@ -244,7 +244,7 @@ const setup: Setup<typeof File> = (ctx) => {
 
   const FileBrowser = lazy(() => styled(import("./browser")))
   const MobileFiles = lazy(() => styled(import("./mobile")))
-  const Tree = lazy(() => styled(import("./tree-v2")))
+  const Tree = lazy(() => styled(import("./pierre-tree")))
   const List = lazy(() => styled(import("./list")))
 
   onCleanup(

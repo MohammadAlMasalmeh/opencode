@@ -176,7 +176,7 @@ test("open file tab browses, searches, and tracks missing files", async ({ page 
   await expect(tab("Open file")).toHaveAttribute("aria-selected", "true")
   await expect(panel.getByText("ReviewOpenFile", { exact: true })).toBeVisible()
 
-  await panel.getByRole("button", { name: "README.md" }).click()
+  await panel.getByRole("treeitem", { name: "README.md" }).click()
   await expect(tab("README.md")).toHaveAttribute("aria-selected", "true")
   await expect(sidebarToggle).toBeEnabled()
   await expect(panel.getByText("contents:README.md", { exact: true })).toBeVisible()
@@ -233,7 +233,7 @@ test("open file tab browses, searches, and tracks missing files", async ({ page 
   await openFileLauncher(panel)
   await openFileLauncher(panel)
   await expect(tab("Open file")).toHaveCount(2)
-  await panel.getByRole("button", { name: "README.md" }).click()
+  await panel.getByRole("treeitem", { name: "README.md" }).click()
   await expect(tab("README.md")).toHaveAttribute("aria-selected", "true")
   await expect(tab("Open file")).toHaveCount(1)
   await tab("Open file").click()
@@ -245,8 +245,8 @@ test("open file tab browses, searches, and tracks missing files", async ({ page 
   await sidebarToggle.click()
   await filter.fill("")
   const root = panel.locator('[data-component="session-review-v2-sidebar-root"]')
-  const viewport = root.locator('[data-slot="session-review-v2-sidebar-tree"] .scroll-view__viewport')
-  await expect(root.getByRole("button", { name: "file-00.ts" })).toBeVisible()
+  const viewport = root.locator('[data-slot="session-review-v2-sidebar-tree"] [data-file-tree-virtualized-scroll]')
+  await expect(root.getByRole("treeitem", { name: "file-00.ts" })).toBeVisible()
   await viewport.hover()
   await page.mouse.wheel(0, 100_000)
   await expect
@@ -261,13 +261,13 @@ test("open file tab browses, searches, and tracks missing files", async ({ page 
     await expect.poll(() => viewport.evaluate((element) => element.scrollTop)).toBe(scrolled)
   }
 
-  await root.getByRole("button", { name: "file-79.ts" }).click()
+  await root.getByRole("treeitem", { name: "file-79.ts" }).click()
   await expect(tab("file-79.ts")).toHaveAttribute("aria-selected", "true")
   await expect(panel.getByText("contents:file-79.ts", { exact: true })).toBeVisible()
   await expectSidebarKept()
-  await root.getByRole("button", { name: "file-78.ts" }).dblclick()
+  await root.getByRole("treeitem", { name: "file-78.ts" }).dblclick()
   await expect(tab("file-78.ts")).toHaveAttribute("aria-selected", "true")
-  await root.getByRole("button", { name: "file-79.ts" }).click()
+  await root.getByRole("treeitem", { name: "file-79.ts" }).click()
   await expect(tab("file-79.ts")).toHaveAttribute("aria-selected", "true")
   await tab("file-78.ts").click()
   await expect(tab("file-78.ts")).toHaveAttribute("aria-selected", "true")
@@ -305,7 +305,7 @@ for (const listed of [false, true]) {
     })
     const panel = page.locator("#review-panel")
     await openFileLauncher(panel)
-    await expect(panel.getByRole("button", { name: "README.md" })).toBeVisible()
+    await expect(panel.getByRole("treeitem", { name: "README.md" })).toBeVisible()
     await expect(panel.locator('[data-slot="session-review-v2-sidebar-title"]')).toHaveText(
       listed ? "Custom app" : "app",
     )
@@ -491,33 +491,36 @@ test("file tree expands Windows paths and scrolls long names in both directions"
   await openFileLauncher(panel)
   await expect(panel.getByRole("tab", { name: "Open file" })).toHaveAttribute("aria-selected", "true")
   const sidebar = panel.locator('[data-component="session-review-v2-sidebar-root"]')
-  const frontend = panel.locator('[data-slot="file-tree-v2-row"][data-path="frontend"]')
+  const frontend = panel.locator('[data-type="item"][data-item-path="frontend/"]')
   await expect(frontend.getByText("frontend", { exact: true })).toBeVisible()
   await expect(frontend).toHaveAttribute("aria-expanded", "false")
   await frontend.click()
   await expect(frontend).toHaveAttribute("aria-expanded", "true")
 
   const viewport = sidebar.locator('[data-slot="session-review-v2-sidebar-tree"] .scroll-view__viewport')
-  const longRow = panel.getByRole("button", { name: longFilename })
-  const status = longRow.locator('[data-slot="file-tree-v2-change"]')
+  const longRow = panel.locator(`[data-type="item"][data-item-path="${longPath}"]`)
+  const content = longRow.locator('[data-item-section="content"]')
+  const status = longRow.locator('[data-item-section="git"]')
   await expect(longRow).toBeVisible()
-  await expect.poll(() => viewport.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeGreaterThan(0)
-  await expect(longRow.locator('[data-slot="file-tree-v2-label"]')).toHaveCSS("text-overflow", "clip")
+  await expect.poll(() => content.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeGreaterThan(0)
+  await expect(content).toHaveCSS("text-overflow", "clip")
   await expect(status).toHaveText("A")
   await expect.poll(() => statusInset(status, "right")).toBeLessThanOrEqual(24)
-  await viewport.hover()
-  await page.mouse.wheel(1_000, 0)
-  await expect.poll(() => viewport.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
-  await expect.poll(() => statusInset(status, "right")).toBeLessThanOrEqual(24)
-  const thumb = sidebar.locator('.scroll-view__thumb[data-orientation="horizontal"]')
-  const scrolled = await viewport.evaluate((element) => element.scrollLeft)
-  await dragThumb(page, thumb, -40)
-  await expect.poll(() => viewport.evaluate((element) => element.scrollLeft)).toBeLessThan(scrolled)
 
   const filter = panel.getByRole("combobox", { name: "Filter files" })
   await filter.fill(longFilename)
   const filteredStatus = panel.getByRole("option", { name: longFilename }).locator('[data-slot="file-tree-v2-change"]')
   await expect(filteredStatus).toHaveText("A")
+  await expect.poll(() => viewport.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeGreaterThan(0)
+  await expect.poll(() => statusInset(filteredStatus, "right")).toBeLessThanOrEqual(24)
+  await viewport.hover()
+  await page.mouse.wheel(1_000, 0)
+  await expect.poll(() => viewport.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
+  await expect.poll(() => statusInset(filteredStatus, "right")).toBeLessThanOrEqual(24)
+  const thumb = sidebar.locator('.scroll-view__thumb[data-orientation="horizontal"]')
+  const scrolled = await viewport.evaluate((element) => element.scrollLeft)
+  await dragThumb(page, thumb, -40)
+  await expect.poll(() => viewport.evaluate((element) => element.scrollLeft)).toBeLessThan(scrolled)
   await viewport.evaluate((element) => {
     element.setAttribute("dir", "rtl")
     element.scrollLeft = 0
@@ -533,7 +536,7 @@ test("file tree expands Windows paths and scrolls long names in both directions"
   })
 
   await filter.fill("")
-  await panel.locator('[data-slot="file-tree-v2-row"][data-path="frontend/app.ts"]').click()
+  await panel.locator('[data-type="item"][data-item-path="frontend/app.ts"]').click()
   await expect(panel.getByRole("tab", { name: "app.ts" })).toHaveAttribute("aria-selected", "true")
   await expect(panel.getByText("contents:frontend/app.ts", { exact: true })).toBeVisible()
 })
@@ -811,7 +814,7 @@ test("image files load into the review panel and keep it painted while loading",
     page.evaluate(() => (window as Window & { e2eImageProbe?: ImageProbe }).e2eImageProbe!.frames)
 
   const response = page.waitForResponse((item) => item.url().includes(`/api/fs/read/${image}`))
-  await page.getByRole("button", { name: /preview\.png/ }).click()
+  await page.getByRole("treeitem", { name: /preview\.png/ }).click()
   await read.promise
   const pending = await frames()
   await expect.poll(frames).toBeGreaterThan(pending)
@@ -869,7 +872,7 @@ test("video files over 25 MB play in the viewer, expand into the theatre overlay
 
   const panel = page.locator("#review-panel")
   await openFileLauncher(panel)
-  await panel.getByRole("button", { name: file }).click()
+  await panel.getByRole("treeitem", { name: file }).click()
   await expect(panel.getByRole("tab", { name: file, exact: true })).toHaveAttribute("aria-selected", "true")
 
   const toolbar = panel.locator('[data-slot="artifact-toolbar"]')
@@ -956,10 +959,10 @@ test("restores review state and the side-panel tab per session", async ({ page }
   // Each session selects a file other than the first, which the review would show without a stored selection.
   await toggle.click()
   await openReviewLauncher(panel)
-  await page.getByRole("button", { name: "gamma.ts" }).click()
+  await page.getByRole("treeitem", { name: "gamma.ts" }).click()
   await selectedFile("gamma.ts")
   await openFileLauncher(panel)
-  await panel.getByRole("button", { name: "README.md" }).click()
+  await panel.getByRole("treeitem", { name: "README.md" }).click()
   await selectedTab("README.md")
 
   await switchSession("Beta review state")
@@ -968,7 +971,7 @@ test("restores review state and the side-panel tab per session", async ({ page }
   await expect(review).toHaveAttribute("aria-selected", "true")
   await page.getByRole("button", { name: "Git changes" }).click()
   await page.getByRole("option", { name: "Branch changes" }).click()
-  await page.getByRole("button", { name: "beta.ts" }).click()
+  await page.getByRole("treeitem", { name: "beta.ts" }).click()
   await selectedFile("beta.ts")
   await page.getByRole("button", { name: "Toggle session context" }).click()
   await selectedTab("Context")
@@ -1302,7 +1305,9 @@ async function dragThumb(page: Page, thumb: Locator, dx: number) {
 
 async function statusInset(status: Locator, side: "left" | "right") {
   return status.evaluate((element, side) => {
-    const viewport = element.closest<HTMLElement>(".scroll-view__viewport")!.getBoundingClientRect()
+    const root = element.getRootNode()
+    const host = root instanceof ShadowRoot ? root.host : element
+    const viewport = host.closest<HTMLElement>(".scroll-view__viewport")!.getBoundingClientRect()
     const box = element.getBoundingClientRect()
 
     return side === "right" ? viewport.right - box.right : box.left - viewport.left

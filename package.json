@@ -179,7 +179,6 @@
     "gcp-metadata@8.1.2": "patches/gcp-metadata@8.1.2.patch",
     "pacote@21.5.1": "patches/pacote@21.5.1.patch",
     "@ai-sdk/google@3.0.73": "patches/@ai-sdk%2Fgoogle@3.0.73.patch",
-    "@pierre/trees@1.0.0-beta.4": "patches/@pierre%2Ftrees@1.0.0-beta.4.patch",
     "@tanstack/virtual-core@3.17.8": "patches/@tanstack%2Fvirtual-core@3.17.8.patch",
     "@ff-labs/fff-bun@0.10.5": "patches/@ff-labs%2Ffff-bun@0.10.5.patch",
     "ghostty-web@github:anomalyco/ghostty-web#83c0a07": "patches/ghostty-web@0.3.0.patch",
@@ -187,6 +186,7 @@
     "@modelcontextprotocol/client@2.0.0": "patches/@modelcontextprotocol%2Fclient@2.0.0.patch",
     "@corvu/drawer@0.2.4": "patches/@corvu%2Fdrawer@0.2.4.patch",
     "app-builder-lib@26.15.7": "patches/app-builder-lib@26.15.7.patch",
-    "electron-updater@6.8.9": "patches/electron-updater@6.8.9.patch"
+    "electron-updater@6.8.9": "patches/electron-updater@6.8.9.patch",
+    "@pierre/trees@1.0.0-beta.6": "patches/@pierre%2Ftrees@1.0.0-beta.6.patch"
   }
 }

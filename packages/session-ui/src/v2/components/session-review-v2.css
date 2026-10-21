@@ -207,6 +207,15 @@
 
 [data-component="session-review-v2-sidebar-root"]
   [data-slot="session-review-v2-sidebar-tree"]
+  .scroll-view__viewport:has(file-tree-container) {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+[data-component="session-review-v2-sidebar-root"]
+  [data-slot="session-review-v2-sidebar-tree"]
   .scroll-view__thumb[data-orientation="vertical"] {
   width: 16px;
 }

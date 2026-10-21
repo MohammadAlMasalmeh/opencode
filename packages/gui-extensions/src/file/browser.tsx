@@ -18,7 +18,7 @@ import {
 import { current, useShared } from "./context"
 import SessionFileList, { applyFileListKeyDown } from "./list"
 import { fileTabPath, isFileTab } from "./path"
-import FileTreeV2 from "./tree-v2"
+import PierreFileTree from "./pierre-tree"
 import { SessionFileView } from "./view"
 
 const emptyFiles: string[] = []
@@ -137,7 +137,7 @@ export function SessionFileBrowserTab(props: {
           <Show
             when={query()}
             fallback={
-              <FileTreeV2
+              <PierreFileTree
                 session={props.session}
                 screen={props.screen}
                 active={props.active}

@@ -33,7 +33,7 @@
     "@opencode/session-ui": "workspace:*",
     "@opencode/ui": "workspace:*",
     "@opencode/util": "workspace:*",
-    "@pierre/trees": "1.0.0-beta.4",
+    "@pierre/trees": "1.0.0-beta.6",
     "@solid-primitives/event-listener": "catalog:",
     "@solid-primitives/keyed": "1.5.3",
     "@solid-primitives/media": "catalog:",
