@@ -614,15 +614,12 @@ export function run(options: Options = {}): Effect.Effect<RunResult, never, Data
                 })
               // Legacy ACP sessions can store a relative cwd. Anchor it to persisted project data,
               // never the migration process's cwd, and leave the original V1 row intact.
-              const worktree = projects.get(projectID) ?? path.parse(global.data).root
-              const directory =
-                nextID.directory && !path.posix.isAbsolute(nextID.directory) && !path.win32.isAbsolute(nextID.directory)
-                  ? /^[A-Za-z]:[\\/]/.test(worktree) || worktree.startsWith("//")
-                    ? path.win32.resolve(worktree, nextID.directory).replaceAll("\\", "/")
-                    : path.posix.resolve(worktree, nextID.directory)
-                  : nextID.directory
+              const directory = migrateDirectory(
+                nextID.directory,
+                projects.get(projectID) ?? path.parse(global.data).root,
+              )
               if (directory !== nextID.directory)
-                yield* Effect.logWarning("Resolved relative V1 session directory", {
+                yield* Effect.logWarning("Normalized V1 session directory", {
                   sessionID: nextID.id,
                   directory: nextID.directory,
                   resolved: directory,
@@ -717,6 +714,18 @@ export function run(options: Options = {}): Effect.Effect<RunResult, never, Data
       return { status: "completed" as const }
     }).pipe(Effect.orDie),
   )
+}
+
+function migrateDirectory(directory: string, worktree: string) {
+  if (!directory || path.posix.isAbsolute(directory)) return directory
+  if (/^[A-Za-z]:[\\/]/.test(directory) || directory.startsWith("\\\\")) return directory.replaceAll("\\", "/")
+  if (!/^[A-Za-z]:[\\/]/.test(worktree) && !worktree.startsWith("//") && !worktree.startsWith("\\\\"))
+    return path.posix.resolve(worktree, directory)
+
+  // A different drive has no persisted cwd. Use its root rather than Node's process-local drive cwd.
+  const drive = /^[A-Za-z]:/.exec(directory)?.[0]
+  const base = drive && !worktree.toLowerCase().startsWith(drive.toLowerCase()) ? `${drive}/` : worktree
+  return path.win32.resolve(base, directory).replaceAll("\\", "/")
 }
 
 function nextPath(options: Options, data: string) {

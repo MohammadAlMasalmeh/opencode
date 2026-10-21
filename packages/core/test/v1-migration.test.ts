@@ -1187,11 +1187,18 @@ describe("V1Migration database workflow", () => {
 
   test.each([
     { worktree: "/repo", directory: "src/client", expected: "/repo/src/client" },
+    { worktree: "/repo", directory: "\\child", expected: "/repo/\\child" },
     { worktree: "/repo/project", directory: "../sibling", expected: "/repo/sibling" },
     { worktree: "C:/Users/Example/repo", directory: ".", expected: "C:/Users/Example/repo" },
     { worktree: "C:/Users/Example/repo", directory: "src\\client", expected: "C:/Users/Example/repo/src/client" },
+    { worktree: "C:/repo", directory: "\\child", expected: "C:/child" },
+    { worktree: "C:/repo", directory: "C:child", expected: "C:/repo/child" },
+    { worktree: "D:/repo", directory: "C:child", expected: "C:/child" },
     { worktree: "//server/share/repo", directory: "src", expected: "//server/share/repo/src" },
+    { worktree: "//server/share/repo", directory: "\\child", expected: "//server/share/child" },
     { worktree: "/repo", directory: "C:/Users/Example/other", expected: "C:/Users/Example/other" },
+    { worktree: "/repo", directory: "C:\\Users\\Example\\other", expected: "C:/Users/Example/other" },
+    { worktree: "/repo", directory: "\\\\server\\share\\other", expected: "//server/share/other" },
     { worktree: "/repo", directory: "", expected: "" },
   ])("uses the saved project path flavor when migrating $directory from $worktree", async (input) => {
     await database(
