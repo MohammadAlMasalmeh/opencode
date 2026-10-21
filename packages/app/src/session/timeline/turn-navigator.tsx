@@ -4,7 +4,6 @@ import { createEffect, createMemo, createSelector, For, onCleanup, Show, type Ac
 import { createStore } from "solid-js/store"
 import { readPromptPresentation } from "@/composer/comment-note"
 import { useServerSDK } from "@/runtime/server/client"
-import { railHit } from "./turn-rail"
 
 const turnPageLimit = 200
 
@@ -130,29 +129,42 @@ function TurnRail(props: TurnNavigatorProps & { index?: Map<string, string>; roo
       new Map(props.messages().flatMap((message) => (message.type === "user" ? [[message.id, message] as const] : []))),
   )
 
-  // Timeline order, as the server lists it. IDs from other clients do not sort chronologically.
-  const turns = createMemo(() => {
-    const revert = props.revertMessageID()
+  // Timeline order, as the server lists it. IDs from other clients do not sort chronologically, so neither the order
+  // nor the reverted boundary may compare them. Streaming replaces the loaded messages on every delta, so the list keeps
+  // its identity until the turns themselves change.
+  const turns = createMemo(
+    () => {
+      const tail = [...loaded().keys()]
+      // Turns paged in from beyond a capped index are older than all of it.
+      const join = tail.findIndex((id) => props.index?.has(id))
+      const ids = [...new Set([...tail.slice(0, Math.max(0, join)), ...(props.index?.keys() ?? []), ...tail])]
+      const revert = props.revertMessageID()
+      const reverted = revert ? ids.indexOf(revert) : -1
 
-    const tail = [...loaded().keys()]
-    // Turns paged in from beyond a capped index are older than all of it.
-    const join = tail.findIndex((id) => props.index?.has(id))
+      return reverted === -1 ? ids : ids.slice(0, reverted)
+    },
+    [],
+    {
+      equals: (previous, next) => previous.length === next.length && previous.every((id, index) => id === next[index]),
+    },
+  )
 
-    return [...new Set([...tail.slice(0, Math.max(0, join)), ...(props.index?.keys() ?? []), ...tail])].filter(
-      (id) => !revert || id < revert,
-    )
-  })
+  const abort = new AbortController()
+  onCleanup(() => abort.abort())
 
   // The turn's latest reply is the newest assistant text between its prompt and the next turn.
   const loadReply = async (id: string) => {
     setState("replies", id, null)
     const list = turns()
 
-    const page = await sdk.api.message.list({
-      sessionID: props.sessionID,
-      limit: replyScanLimit,
-      before: list[list.indexOf(id) + 1] ?? props.revertMessageID(),
-    })
+    const page = await sdk.api.message.list(
+      {
+        sessionID: props.sessionID,
+        limit: replyScanLimit,
+        before: list[list.indexOf(id) + 1] ?? props.revertMessageID(),
+      },
+      { signal: abort.signal },
+    )
 
     const end = page.data.findIndex((message) => message.type === "user")
 
@@ -189,10 +201,11 @@ function TurnRail(props: TurnNavigatorProps & { index?: Map<string, string>; roo
     onCleanup(() => clearTimeout(timer))
   })
 
-  const preview = createMemo(() => {
+  // A closed preview keeps its last content for the fade-out without following a streaming reply.
+  const preview = createMemo((previous?: { prompt?: string; response?: string }) => {
     const id = state.shown
 
-    if (!id) return
+    if (!id || !state.open) return previous
     const message = loaded().get(id)
 
     return {
@@ -203,7 +216,8 @@ function TurnRail(props: TurnNavigatorProps & { index?: Map<string, string>; roo
 
   let list: HTMLDivElement | undefined
   let card: HTMLDivElement | undefined
-  const ticks = new Map<string, HTMLElement>()
+  // Each tick's element and the scale last written to it.
+  const ticks = new Map<string, { element: HTMLElement; scale: number }>()
   // The pointer's clientY over the rail, and the rail's geometry from the last frame's read phase.
   let pointer: number | undefined
 
@@ -238,7 +252,8 @@ function TurnRail(props: TurnNavigatorProps & { index?: Map<string, string>; roo
       motion.wave.set(1)
       motion.top.set(Math.max(0, Math.min(rail.rootHeight - previewMaxHeight, tick - previewAnchor)))
 
-      if (id && id !== state.hover) setState({ hover: id, shown: id })
+      // Store writes re-render, so they wait until the frame's style writes are done.
+      if (id && id !== state.hover) queueMicrotask(() => pointer !== undefined && setState({ hover: id, shown: id }))
     }
 
     const position = step(motion.position, dt)
@@ -248,9 +263,12 @@ function TurnRail(props: TurnNavigatorProps & { index?: Map<string, string>; roo
       const distance = Math.abs(index - position) * pitch
       const swell = distance < waveRadius ? (wave * (1 + Math.cos((distance / waveRadius) * Math.PI))) / 2 : 0
       const rest = active(id) ? tickWidths.active : tickWidths.default
+      const scale = (rest + (tickWidths.peak - rest) * swell) / tickWidths.peak
       const tick = ticks.get(id)
 
-      if (tick) tick.style.transform = `scaleX(${(rest + (tickWidths.peak - rest) * swell) / tickWidths.peak})`
+      if (!tick || tick.scale === scale) return
+      tick.scale = scale
+      tick.element.style.transform = `scaleX(${scale})`
     })
 
     motion.opacity.set(state.open ? 1 : 0)
@@ -271,7 +289,8 @@ function TurnRail(props: TurnNavigatorProps & { index?: Map<string, string>; roo
   const wake = () => {
     frame ??= frameLoop.addMeasured(
       () => {
-        if (!list) return
+        // Only the pointer needs geometry; reading it otherwise would force a layout on every streamed frame.
+        if (!list || pointer === undefined) return
         const box = list.getBoundingClientRect()
         const root = props.root.getBoundingClientRect()
         rail.top = box.top
@@ -337,8 +356,9 @@ function TurnRail(props: TurnNavigatorProps & { index?: Map<string, string>; roo
               >
                 <span
                   ref={(element) => {
-                    element.style.transform = `scaleX(${(active(id) ? tickWidths.active : tickWidths.default) / tickWidths.peak})`
-                    ticks.set(id, element)
+                    const scale = (active(id) ? tickWidths.active : tickWidths.default) / tickWidths.peak
+                    element.style.transform = `scaleX(${scale})`
+                    ticks.set(id, { element, scale })
                     onCleanup(() => ticks.delete(id))
                   }}
                   class="block h-0.5 shrink-0 origin-left bg-(--tick-color) rtl:origin-right"
@@ -403,4 +423,14 @@ function replyText(messages: SessionMessageAssistant[]) {
 
 function previewText(text: string) {
   return text.replace(/\s+/g, " ").trim().slice(0, previewLength)
+}
+
+/**
+ * The tick nearest a pointer `offset` px down a rail of `count` evenly spaced ticks `height` px tall, and the pointer's
+ * position in tick units (0 is the first tick's centre). Offsets beyond either end clamp to that end's tick.
+ */
+function railHit(offset: number, height: number, count: number) {
+  const position = Math.min(count - 1, Math.max(0, (offset / height) * count - 0.5))
+
+  return { index: Math.round(position), position }
 }
