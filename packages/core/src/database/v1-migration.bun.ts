@@ -2,7 +2,7 @@ export * as V1Migration from "./v1-migration.js"
 
 import { Cause, Effect, Layer, Option, Schema, Semaphore } from "effect"
 import { Database } from "./database.js"
-import { isWindowsStoragePath } from "./path.js"
+import { isWindowsStoragePath, storagePath } from "./path.js"
 import { SessionMessageTable, SessionTable } from "../session/sql.js"
 import { SessionV1 } from "@opencode/schema/session-v1"
 import { SessionMessage } from "../session/message.js"
@@ -615,10 +615,11 @@ export function run(options: Options = {}): Effect.Effect<RunResult, never, Data
                 })
               // Legacy ACP sessions can store a cwd relative to an unknown process directory.
               // Use the project worktree instead, and leave the original V1 row intact.
+              const stored = storagePath(nextID.directory)
               const directory =
-                !nextID.directory || path.posix.isAbsolute(nextID.directory) || isWindowsStoragePath(nextID.directory)
+                !stored || path.posix.isAbsolute(stored) || isWindowsStoragePath(stored)
                   ? nextID.directory
-                  : (projects.get(projectID) ?? path.parse(global.data).root).replaceAll("\\", "/")
+                  : storagePath(projects.get(projectID) ?? path.parse(global.data).root)
               if (directory !== nextID.directory)
                 yield* Effect.logWarning("Normalized V1 session directory", {
                   sessionID: nextID.id,

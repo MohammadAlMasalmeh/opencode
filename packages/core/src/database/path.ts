@@ -3,7 +3,7 @@ import { customType } from "drizzle-orm/sqlite-core"
 import { Schema } from "effect"
 import { AbsolutePath } from "../schema.js"
 
-function storagePath(input: string) {
+export function storagePath(input: string) {
   if (process.platform !== "win32") return input
   return input.replaceAll("\\", "/")
 }
