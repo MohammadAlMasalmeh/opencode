@@ -1128,6 +1128,7 @@ describe("V1Migration database workflow", () => {
     { worktree: "/repo", directory: "C:/other", expected: "C:/other" },
     { worktree: "/repo", directory: "//server/share/other", expected: "//server/share/other" },
     { worktree: "/repo", directory: "", expected: "" },
+    { worktree: "relative", directory: ".", expected: "" },
   ])("migrates $directory in $worktree", async (input) => {
     await database(
       Effect.gen(function* () {

@@ -3,21 +3,24 @@ import { customType } from "drizzle-orm/sqlite-core"
 import { Schema } from "effect"
 import { AbsolutePath } from "../schema.js"
 
-export function storagePath(input: string) {
+function storagePath(input: string) {
   if (process.platform !== "win32") return input
   return input.replaceAll("\\", "/")
 }
 
-export function isWindowsStoragePath(input: string) {
+function isWindowsStoragePath(input: string) {
   return /^[A-Za-z]:\//.test(input) || input.startsWith("//")
 }
 
-function absolute(input: string) {
+export function storedAbsolutePath(input: string) {
   const result = storagePath(input)
   // Persisted projects and sessions can move between operating systems during migration.
-  if (!nodePath.posix.isAbsolute(result) && !isWindowsStoragePath(result)) {
-    throw new Error(`Path is not absolute: ${input}`)
-  }
+  if (nodePath.posix.isAbsolute(result) || isWindowsStoragePath(result)) return result
+}
+
+function absolute(input: string) {
+  const result = storedAbsolutePath(input)
+  if (result === undefined) throw new Error(`Path is not absolute: ${input}`)
   return result
 }
 
