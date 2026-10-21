@@ -11,6 +11,7 @@ import { IconButton } from "@opencode/ui/icon-button"
 import { Tooltip } from "@opencode/ui/tooltip"
 import { useLanguage } from "@/runtime/i18n/language"
 import type { SessionQueueView } from "./queue"
+import { SpringHeight } from "./spring-height"
 import "./queue-panel.css"
 
 // Pullout above the composer listing the prompts queued behind the current
@@ -18,13 +19,20 @@ import "./queue-panel.css"
 // composer background) so the two read as one attached surface.
 export function SessionQueuePanel(props: { queue: SessionQueueView }) {
   const language = useLanguage()
-  const count = () => props.queue.rows().length
+  // While the emptied panel closes behind the composer it keeps showing its last prompts.
+  const rows = createMemo(
+    (last: ReturnType<SessionQueueView["rows"]>) => (props.queue.rows().length ? props.queue.rows() : last),
+    [],
+  )
+  const queue = { ...props.queue, rows }
+  const count = () => rows().length
   let listRef!: HTMLDivElement
 
   return (
-    <Show when={count() > 0}>
+    <SpringHeight watch={count()} when={props.queue.rows().length > 0} skirt={12} class="relative z-0">
       <div
         data-component="session-queue-panel"
+        inert={props.queue.rows().length === 0}
         class="relative z-0 -mb-3 rounded-xl bg-v2-background-bg-base px-1.5 pt-1.5 shadow-[inset_0_0_0_0.5px_var(--v2-border-border-base)]"
         // Match the composer overlap so the scroll crop meets the input edge.
         classList={{ "pb-3": count() > 4, "pb-[18px]": count() <= 4 }}
@@ -55,7 +63,7 @@ export function SessionQueuePanel(props: { queue: SessionQueueView }) {
             if (source.initialIndex === source.index) return
             void props.queue.reorder(
               arrayMove(
-                props.queue.rows().map((row) => row.id),
+                rows().map((row) => row.id),
                 source.initialIndex,
                 source.index,
               ),
@@ -77,13 +85,13 @@ export function SessionQueuePanel(props: { queue: SessionQueueView }) {
                   : undefined,
             }}
           >
-            <For each={props.queue.rows().map((row) => row.id)}>
-              {(id, index) => <SessionQueueRow queue={props.queue} id={id} index={index()} />}
+            <For each={rows().map((row) => row.id)}>
+              {(id, index) => <SessionQueueRow queue={queue} id={id} index={index()} />}
             </For>
           </div>
         </DragDropProvider>
       </div>
-    </Show>
+    </SpringHeight>
   )
 }
 
@@ -109,7 +117,7 @@ function SessionQueueRow(props: { queue: SessionQueueView; id: string; index: nu
   })
 
   return (
-    <Show when={row()} keyed>
+    <Show when={row()}>
       {(entry) => (
         <div
           ref={sortable.ref}
@@ -144,12 +152,12 @@ function SessionQueueRow(props: { queue: SessionQueueView; id: string; index: nu
                 }}
                 onClick={() => props.queue.edit(props.id)}
               >
-                {entry.text ||
-                  (entry.attachments ? language.plural("session.queue.attachments", entry.attachments) : "")}
+                {entry().text ||
+                  (entry().attachments ? language.plural("session.queue.attachments", entry().attachments) : "")}
               </button>
-              <Show when={entry.attachments && entry.text}>
+              <Show when={entry().attachments && entry().text}>
                 <span class="shrink-0 whitespace-nowrap text-[13px] font-[440] leading-[var(--line-height-compact)] text-v2-text-text-muted">
-                  {language.plural("session.queue.attachments", entry.attachments)}
+                  {language.plural("session.queue.attachments", entry().attachments)}
                 </span>
               </Show>
             </div>
