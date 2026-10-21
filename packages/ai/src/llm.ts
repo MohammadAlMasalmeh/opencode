@@ -130,10 +130,8 @@ const runGenerateObject = Effect.fn("LLM.generateObject")(function* (
     toolChoice: ToolChoice.named(GENERATE_OBJECT_TOOL_NAME),
   })
   const response = yield* LLMClient.generate(generateRequest)
-  const call = response.toolCalls.find(
-    (event) => LLMEvent.is.toolCall(event) && event.name === GENERATE_OBJECT_TOOL_NAME,
-  )
-  if (!call || !LLMEvent.is.toolCall(call))
+  const call = response.toolCalls.find((event) => event.name === GENERATE_OBJECT_TOOL_NAME)
+  if (!call)
     return yield* new AIError({
       reason: new InvalidProviderOutputError({
         message: `generateObject: model did not call the forced \`${GENERATE_OBJECT_TOOL_NAME}\` tool`,

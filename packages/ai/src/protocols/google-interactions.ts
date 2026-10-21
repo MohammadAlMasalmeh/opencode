@@ -222,9 +222,7 @@ const mediaContent = Effect.fnUntraced(function* (asset: Media.Asset) {
 
 const signature = (metadata: ProviderMetadata | undefined, key: string) => {
   const value = metadata?.[key]
-  return ProviderShared.isRecord(value) && typeof value.interactionSignature === "string"
-    ? value.interactionSignature
-    : undefined
+  return typeof value?.interactionSignature === "string" ? value.interactionSignature : undefined
 }
 
 const lowerMessages = Effect.fnUntraced(function* (request: LLMRequest) {
