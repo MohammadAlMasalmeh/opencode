@@ -45,3 +45,24 @@ describe("motionTuning.spring", () => {
     expect(spring().duration).toBeCloseTo(0.8)
   })
 })
+
+describe("motionTuning.choice", () => {
+  test("starts on its shipped option and switches to another", () => {
+    const choice = motionTuning.choice("test.choice", {
+      label: "Choice",
+      group: "Experiments",
+      value: "b",
+      labels: { a: "A", b: "B", c: "C" },
+    })
+
+    const knob = motionTuning.list().find((item) => item.id === "test.choice")
+
+    if (knob?.kind !== "choice") throw new Error("expected a choice knob")
+
+    expect(choice()).toBe("b")
+    expect(knob.options).toEqual(["a", "b", "c"])
+
+    motionTuning.set(knob, "c")
+    expect(choice()).toBe("c")
+  })
+})

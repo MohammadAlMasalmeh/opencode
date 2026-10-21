@@ -1,6 +1,7 @@
 import type { SessionInfo } from "@opencode/client/promise"
 import { Icon } from "@opencode/ui/icon"
 import { Menu } from "@opencode/ui/menu"
+import { motionTuning } from "@opencode/ui/motion-tuning"
 import {
   displayName,
   getProjectAvatarSource,
@@ -8,7 +9,7 @@ import {
   ProjectAvatar,
 } from "@opencode/ui/project-avatar"
 import { useNavigate } from "@solidjs/router"
-import { createMemo, For, Show, type ComponentProps, type JSX, type ParentProps } from "solid-js"
+import { createMemo, createSignal, For, Show, type ComponentProps, type JSX, type ParentProps } from "solid-js"
 import { containsDirectory, getFilename } from "@opencode/util/path"
 import { useServer } from "@/runtime/server/current"
 import { ServerConnection, useServers } from "@/runtime/server/registry"
@@ -28,6 +29,24 @@ import { sessionTitle } from "./title"
 import { SessionWorkingIndicator } from "./header/session-working-indicator"
 import { CollapsedSidebarToggleSpace } from "@/shell/sidebar-toggle"
 import "./session-identity-header.css"
+
+const separatorChoice = motionTuning.choice("sessionHeader.separator", {
+  label: "Session header separator",
+  group: "Experiments",
+  value: "slash",
+  labels: {
+    slash: "Slash",
+    chevron: "Chevron",
+    caret: "Mini caret",
+    dot: "Middle dot",
+    chip: "Project chip",
+    divider: "Divider",
+  },
+})
+
+const [separator, setSeparator] = createSignal(separatorChoice())
+
+motionTuning.subscribe(() => setSeparator(separatorChoice()))
 
 export function SessionTitleHeader(props: ParentProps) {
   return (
@@ -166,6 +185,7 @@ export function SessionLocation(props: {
       <Menu placement="bottom-start" gutter={4} modal={false} onOpenChange={onOpenChange}>
         <Menu.Trigger
           data-slot="session-location-trigger"
+          data-separator={props.trailing ? separator() : undefined}
           class="flex h-6 min-w-0 max-w-[60%] shrink items-center gap-1.5 rounded-md ps-1 pe-2 text-start text-[13px] font-[440] leading-[var(--line-height-compact)] tracking-[-0.04px] text-v2-text-text-muted transition-colors hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:text-v2-text-text-base focus-visible:outline-none data-[expanded]:bg-v2-overlay-simple-overlay-hover data-[expanded]:text-v2-text-text-base"
         >
           <ProjectAvatar
@@ -276,13 +296,14 @@ export function SessionLocation(props: {
           </Menu.Content>
         </Menu.Portal>
       </Menu>
-      <Show when={props.trailing}>
+      <Show when={props.trailing && separator() !== "chip"}>
         <span
           data-slot="session-title-separator"
-          class="shrink-0 pe-1 text-[11px] font-medium text-v2-text-text-faint"
+          data-variant={separator()}
+          class="session-location-separator shrink-0 text-[11px] font-medium text-v2-text-text-faint"
           aria-hidden="true"
         >
-          /
+          {separator() === "slash" ? "/" : undefined}
         </span>
       </Show>
     </>

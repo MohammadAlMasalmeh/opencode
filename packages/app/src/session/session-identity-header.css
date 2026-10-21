@@ -47,3 +47,65 @@
 .session-header-fade {
   top: 48px;
 }
+
+/* Session header separator variants, chosen in the debug bar's Motion workspace under Experiments. */
+.session-location-separator {
+  padding-inline-end: 4px;
+}
+
+/* The slash's ink sits 1.3px nearer the project than the title; this evens the two gaps. */
+.session-location-separator[data-variant="slash"] {
+  padding-inline: 0.5px 3px;
+}
+
+.session-location-separator:not([data-variant="slash"]) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 16px;
+  block-size: 16px;
+}
+
+.session-location-separator:not([data-variant="slash"])::before {
+  content: "";
+}
+
+.session-location-separator[data-variant="chevron"]::before {
+  inline-size: 5px;
+  block-size: 5px;
+  border-block-start: 1.25px solid currentColor;
+  border-inline-end: 1.25px solid currentColor;
+  transform: translateX(-1px) rotate(45deg);
+}
+
+.session-location-separator[data-variant="chevron"]:dir(rtl)::before {
+  transform: translateX(1px) rotate(-45deg);
+}
+
+.session-location-separator[data-variant="caret"]::before {
+  border-block: 3px solid transparent;
+  border-inline-start: 4px solid currentColor;
+}
+
+.session-location-separator[data-variant="dot"]::before {
+  inline-size: 3px;
+  block-size: 3px;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+.session-location-separator[data-variant="divider"]::before {
+  inline-size: 1px;
+  block-size: 14px;
+  background-color: var(--v2-border-border-base);
+}
+
+.session-header-location > [data-slot="session-location-trigger"][data-separator="chip"] {
+  margin-inline-end: 6px;
+  background-color: var(--v2-overlay-simple-overlay-hover);
+}
+
+.session-header-location
+  > [data-slot="session-location-trigger"][data-separator="chip"]:is(:hover, :focus-visible, [data-expanded]) {
+  background-color: var(--v2-overlay-simple-overlay-pressed);
+}

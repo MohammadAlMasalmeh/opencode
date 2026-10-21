@@ -1,8 +1,8 @@
 import type { DurationOptions } from "./motion"
 
 // Live motion settings for developer mode. Each surface registers knobs under its own group with their shipped defaults,
-// plus actions that replay its motion; the Motion workspace (`motion-tuning-panel`) shows a section per group. Edits
-// persist on this device.
+// plus actions that replay its motion; the Motion workspace (`motion-tuning-panel`) shows a section per group. Choices
+// in the "Experiments" group are design variants to try before one ships. Edits persist on this device.
 
 type Knob<Kind extends string, Value> = {
   kind: Kind
@@ -22,6 +22,7 @@ export type MotionKnob =
   | (Knob<"spring", DurationOptions> & { presets: Record<MotionPreset, DurationOptions> })
   | Knob<"toggle", boolean>
   | (Knob<"number", number> & { min: number; max: number; step: number; unit?: string })
+  | (Knob<"choice", string> & { options: readonly [string, ...string[]]; labels: Record<string, string> })
 
 export type MotionAction = { id: string; label: string; group: string; run: () => void }
 
@@ -36,7 +37,7 @@ const actions = new Map<string, MotionAction>()
 
 const listeners = new Set<() => void>()
 
-// Saved as numbers only: `<id>.duration` and `<id>.bounce` for springs, 0 or 1 for toggles.
+// Saved as numbers only: `<id>.duration` and `<id>.bounce` for springs, 0 or 1 for toggles, the option's index for choices.
 const saved = load()
 
 export const motionTuning = {
@@ -70,6 +71,25 @@ export const motionTuning = {
     })
 
     return () => knob.value
+  },
+  /** One of several named variants, such as a design experiment. `labels` maps each option to what the panel shows. */
+  choice<const T extends string>(id: string, meta: Meta & { value: NoInfer<T>; labels: Record<T, string> }) {
+    // SAFETY: a labels record always has at least the initial value's key.
+    const options = Object.keys(meta.labels) as [T, ...T[]]
+
+    const knob = register({
+      kind: "choice",
+      id,
+      label: meta.label,
+      group: meta.group,
+      initial: meta.value,
+      value: options[number(id, options.indexOf(meta.value))] ?? meta.value,
+      options,
+      labels: meta.labels,
+    })
+
+    // SAFETY: the panel only sets one of the knob's options.
+    return () => knob.value as T
   },
   /**
    * A tuned number. A `time` of "duration" is seconds, stretched by the global speed and slow motion; "rate" is per
@@ -193,6 +213,9 @@ function save() {
         ]
 
       if (knob.kind === "toggle") return [[knob.id, Number(knob.value), Number(knob.initial)]]
+
+      if (knob.kind === "choice")
+        return [[knob.id, knob.options.indexOf(knob.value), knob.options.indexOf(knob.initial)]]
 
       return [[knob.id, knob.value, knob.initial]]
     })

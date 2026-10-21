@@ -23,7 +23,7 @@ export function mountMotionPanel(container: HTMLElement, options: { title?: stri
   }
 
   async function start() {
-    const { action, defineControls, knob, spring, toggle } = await import("knobs")
+    const { action, choice, defineControls, knob, spring, toggle } = await import("knobs")
 
     const field = (item: MotionKnob) => {
       const meta = { label: item.label, group: item.group, tab: item.group === global ? undefined : item.group }
@@ -31,6 +31,8 @@ export function mountMotionPanel(container: HTMLElement, options: { title?: stri
       if (item.kind === "spring") return spring(item.initial, meta)
 
       if (item.kind === "toggle") return toggle(item.initial, meta)
+
+      if (item.kind === "choice") return choice(item.initial, item.options, { ...meta, labels: item.labels })
 
       return knob(item.initial, { ...meta, min: item.min, max: item.max, step: item.step, unit: item.unit ?? "×" })
     }
@@ -44,6 +46,11 @@ export function mountMotionPanel(container: HTMLElement, options: { title?: stri
       if (item.kind === "toggle") {
         // SAFETY: a toggle knob's field is a toggle field.
         return motionTuning.set(item, value as boolean)
+      }
+
+      if (item.kind === "choice") {
+        // SAFETY: a choice knob's field is a choice field.
+        return motionTuning.set(item, value as string)
       }
 
       // SAFETY: a number knob's field is a number field.
